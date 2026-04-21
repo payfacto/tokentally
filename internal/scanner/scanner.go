@@ -145,7 +145,7 @@ func ScanDir(conn *sql.DB, projectsDir string) (ScanResult, error) {
 		slug := projectSlug(path, projectsDir)
 		sub, err := scanFile(conn, path, slug, startByte)
 		if err != nil {
-			return fmt.Errorf("scanFile %s: %w", path, err)
+			return nil // permission or I/O error — skip this file, walk continues
 		}
 
 		if err := saveFileState(conn, path, currentMtime, sub.endOffset); err != nil {
