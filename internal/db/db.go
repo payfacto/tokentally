@@ -242,9 +242,13 @@ func ExpensivePrompts(conn *sql.DB, limit int, sort string) ([]map[string]any, e
 SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
        u.prompt_text, u.prompt_chars,
        a.uuid AS assistant_uuid, a.model,
+       COALESCE(a.input_tokens,0) AS input_tokens,
+       COALESCE(a.output_tokens,0) AS output_tokens,
+       COALESCE(a.cache_read_tokens,0) AS cache_read_tokens,
+       COALESCE(a.cache_create_5m_tokens,0) AS cache_create_5m_tokens,
+       COALESCE(a.cache_create_1h_tokens,0) AS cache_create_1h_tokens,
        COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)
-         +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens,
-       COALESCE(a.cache_read_tokens,0) AS cache_read_tokens
+         +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens
 FROM messages u
 JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
 WHERE u.type='user' AND u.prompt_text IS NOT NULL
