@@ -2,6 +2,7 @@ package scanner_test
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -120,5 +121,43 @@ func TestScanDir_PromptText(t *testing.T) {
 	}
 	if promptText != "hello world" {
 		t.Errorf("prompt_text: expected %q, got %q", "hello world", promptText)
+	}
+}
+
+func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, "proj-dedup")
+	if err := os.MkdirAll(projDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Two records with the same message.id but different uuid — second is the updated snapshot.
+	line1 := `{"uuid":"old-uuid","parentUuid":null,"sessionId":"session-dedup","type":"assistant","timestamp":"2025-01-01T10:00:00.000Z","message":{"id":"msg-shared","model":"claude-sonnet-4-6","stop_reason":"end_turn","content":[],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0}}}}` + "\n"
+	line2 := `{"uuid":"new-uuid","parentUuid":null,"sessionId":"session-dedup","type":"assistant","timestamp":"2025-01-01T10:00:01.000Z","message":{"id":"msg-shared","model":"claude-sonnet-4-6","stop_reason":"end_turn","content":[],"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0}}}}` + "\n"
+
+	jsonlPath := filepath.Join(projDir, "session-dedup.jsonl")
+	if err := os.WriteFile(jsonlPath, []byte(line1+line2), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	conn := openMem(t)
+	if _, err := scanner.ScanDir(conn, dir); err != nil {
+		t.Fatalf("ScanDir: %v", err)
+	}
+
+	var count int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE message_id='msg-shared'`).Scan(&count); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("dedup: expected 1 row with message_id='msg-shared', got %d", count)
+	}
+
+	var uuid string
+	if err := conn.QueryRow(`SELECT uuid FROM messages WHERE message_id='msg-shared'`).Scan(&uuid); err != nil {
+		t.Fatalf("uuid query: %v", err)
+	}
+	if uuid != "new-uuid" {
+		t.Errorf("dedup: expected surviving uuid=%q, got %q", "new-uuid", uuid)
 	}
 }

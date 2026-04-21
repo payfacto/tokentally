@@ -224,13 +224,13 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 // processLine parses one JSONL line and inserts a message + tool rows.
 // Returns (messagesInserted, toolsInserted, error).
 func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
-	line := strings.TrimSpace(string(raw))
-	if line == "" {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
 		return 0, 0, nil
 	}
 
 	var rec jsonlRecord
-	if err := json.Unmarshal([]byte(line), &rec); err != nil {
+	if err := json.Unmarshal(trimmed, &rec); err != nil {
 		return 0, 0, nil // skip malformed JSON
 	}
 	if rec.UUID == "" || rec.Type == "" || rec.SessionID == "" || rec.Timestamp == "" {
@@ -445,8 +445,9 @@ func extractTarget(toolName string, inputRaw json.RawMessage) string {
 	if err := json.Unmarshal(val, &s); err != nil {
 		return ""
 	}
-	if len(s) > maxTargetLen {
-		return s[:maxTargetLen]
+	runes := []rune(s)
+	if len(runes) > maxTargetLen {
+		return string(runes[:maxTargetLen])
 	}
 	return s
 }
@@ -482,40 +483,29 @@ func evictPriorSnapshots(conn *sql.DB, sessionID, messageID, keepUUID string) er
 	if err != nil {
 		return fmt.Errorf("evict query: %w", err)
 	}
-	defer rows.Close()
 
 	var uuids []string
 	for rows.Next() {
 		var u string
 		if err := rows.Scan(&u); err != nil {
+			rows.Close()
 			return fmt.Errorf("evict scan: %w", err)
 		}
 		uuids = append(uuids, u)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return fmt.Errorf("evict rows: %w", err)
 	}
-	if len(uuids) == 0 {
-		return nil
-	}
+	rows.Close() // close before issuing writes on the same connection
 
-	placeholders := strings.Repeat("?,", len(uuids))
-	placeholders = placeholders[:len(placeholders)-1]
-
-	args := make([]any, len(uuids))
-	for i, u := range uuids {
-		args[i] = u
-	}
-
-	if _, err := conn.Exec(
-		`DELETE FROM tool_calls WHERE message_uuid IN (`+placeholders+`)`, args...,
-	); err != nil {
-		return fmt.Errorf("evict tool_calls: %w", err)
-	}
-	if _, err := conn.Exec(
-		`DELETE FROM messages WHERE uuid IN (`+placeholders+`)`, args...,
-	); err != nil {
-		return fmt.Errorf("evict messages: %w", err)
+	for _, u := range uuids {
+		if _, err := conn.Exec(`DELETE FROM tool_calls WHERE message_uuid=?`, u); err != nil {
+			return fmt.Errorf("evict tool_calls %s: %w", u, err)
+		}
+		if _, err := conn.Exec(`DELETE FROM messages WHERE uuid=?`, u); err != nil {
+			return fmt.Errorf("evict messages %s: %w", u, err)
+		}
 	}
 	return nil
 }
