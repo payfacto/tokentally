@@ -8,11 +8,17 @@ import (
 )
 
 const sampleJSON = `{
-  "plans": {"api": {"models": {"claude-sonnet-4-6": {
-    "input_mtok": 3.0, "output_mtok": 15.0,
-    "cache_read_mtok": 0.3, "cache_create_5m_mtok": 3.75, "cache_create_1h_mtok": 3.75
-  }}}},
-  "default_plan": "api"
+  "models": {
+    "claude-sonnet-4-6": {
+      "tier": "sonnet",
+      "input": 3.0, "output": 15.0,
+      "cache_read": 0.3, "cache_create_5m": 3.75, "cache_create_1h": 6.0
+    }
+  },
+  "tier_fallback": {},
+  "plans": {
+    "api": { "monthly": 0, "label": "API (pay-per-token)" }
+  }
 }`
 
 func TestLoadPricing(t *testing.T) {
@@ -61,5 +67,19 @@ func TestCostFor_CacheTokens(t *testing.T) {
 	// 1M cache_read @ $0.3/Mtok + 1M cache_create_5m @ $3.75/Mtok = $4.05
 	if cost == nil || *cost < 4.04 || *cost > 4.06 {
 		t.Errorf("expected ~$4.05, got %v", cost)
+	}
+}
+
+func TestPlanDefs(t *testing.T) {
+	p, _ := pricing.Load(strings.NewReader(sampleJSON))
+	if len(p.Plans) == 0 {
+		t.Error("expected at least one plan")
+	}
+	plan, ok := p.Plans["api"]
+	if !ok {
+		t.Fatal("api plan not found")
+	}
+	if plan.Label == "" {
+		t.Error("plan label should not be empty")
 	}
 }

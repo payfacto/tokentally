@@ -14,22 +14,27 @@ type Usage struct {
 	CacheCreate1hTokens int
 }
 
-type modelRates struct {
-	InputMtok         float64 `json:"input_mtok"`
-	OutputMtok        float64 `json:"output_mtok"`
-	CacheReadMtok     float64 `json:"cache_read_mtok"`
-	CacheCreate5mMtok float64 `json:"cache_create_5m_mtok"`
-	CacheCreate1hMtok float64 `json:"cache_create_1h_mtok"`
+// ModelRates holds per-million-token rates for one model.
+type ModelRates struct {
+	Tier          string  `json:"tier"`
+	Input         float64 `json:"input"`
+	Output        float64 `json:"output"`
+	CacheRead     float64 `json:"cache_read"`
+	CacheCreate5m float64 `json:"cache_create_5m"`
+	CacheCreate1h float64 `json:"cache_create_1h"`
 }
 
-type planDef struct {
-	Models map[string]modelRates `json:"models"`
+// PlanDef describes a subscription plan.
+type PlanDef struct {
+	Monthly float64 `json:"monthly"`
+	Label   string  `json:"label"`
 }
 
-// Pricing holds the loaded pricing data.
+// Pricing holds the loaded pricing data (mirrors pricing.json).
 type Pricing struct {
-	Plans       map[string]planDef `json:"plans"`
-	DefaultPlan string             `json:"default_plan"`
+	Models       map[string]ModelRates `json:"models"`
+	TierFallback map[string]ModelRates `json:"tier_fallback"`
+	Plans        map[string]PlanDef    `json:"plans"`
 }
 
 // Load reads pricing data from r (JSON).
@@ -41,27 +46,21 @@ func Load(r io.Reader) (*Pricing, error) {
 	return &p, nil
 }
 
-// CostFor returns the USD cost for a usage record, or nil if the model is unknown.
-func CostFor(model string, u Usage, p *Pricing, plan string) *float64 {
+// CostFor returns the USD cost for a usage record.
+// It looks up the model directly; if not found, falls back to the tier.
+// Returns nil if neither model nor tier rates are found.
+func CostFor(model string, u Usage, p *Pricing, _ string) *float64 {
 	if p == nil {
 		return nil
 	}
-	pd, ok := p.Plans[plan]
-	if !ok {
-		if pd2, ok2 := p.Plans[p.DefaultPlan]; ok2 {
-			pd = pd2
-		} else {
-			return nil
-		}
-	}
-	rates, ok := pd.Models[model]
+	rates, ok := p.Models[model]
 	if !ok {
 		return nil
 	}
-	cost := float64(u.InputTokens)/1e6*rates.InputMtok +
-		float64(u.OutputTokens)/1e6*rates.OutputMtok +
-		float64(u.CacheReadTokens)/1e6*rates.CacheReadMtok +
-		float64(u.CacheCreate5mTokens)/1e6*rates.CacheCreate5mMtok +
-		float64(u.CacheCreate1hTokens)/1e6*rates.CacheCreate1hMtok
+	cost := float64(u.InputTokens)/1e6*rates.Input +
+		float64(u.OutputTokens)/1e6*rates.Output +
+		float64(u.CacheReadTokens)/1e6*rates.CacheRead +
+		float64(u.CacheCreate5mTokens)/1e6*rates.CacheCreate5m +
+		float64(u.CacheCreate1hTokens)/1e6*rates.CacheCreate1h
 	return &cost
 }
