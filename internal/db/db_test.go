@@ -235,6 +235,12 @@ func TestExpensivePrompts(t *testing.T) {
 	}
 	// billable = 500+200+10+5 = 715
 	assertInt64(t, p, "billable_tokens", 715)
+	// individual token columns must be present for per-prompt cost calculation
+	assertInt64(t, p, "input_tokens", 500)
+	assertInt64(t, p, "output_tokens", 200)
+	assertInt64(t, p, "cache_read_tokens", 50)
+	assertInt64(t, p, "cache_create_5m_tokens", 10)
+	assertInt64(t, p, "cache_create_1h_tokens", 5)
 }
 
 func TestGetSetPlan(t *testing.T) {
