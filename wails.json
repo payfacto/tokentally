@@ -1,0 +1,1 @@
+{"$schema":"https://wails.io/schemas/config.v2.json","name":"TokenTally","outputfilename":"tokentally","frontend:install":"","frontend:build":"","frontend:dev:watcher":"","frontend:dev:serverUrl":"","wailsjsdir":"./frontend/web"}
