@@ -1,0 +1,106 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+**TokenTally** — a Windows desktop application (Wails v2 + Go) that reads Claude Code JSONL transcripts from `~/.claude/projects/` and presents a 7-tab token usage dashboard. The same binary runs as a Windows GUI, a system tray icon, and a background Windows SCM service.
+
+## Commands
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests for a single package
+go test ./internal/db/...
+go test ./internal/scanner/... -v -run TestScanDir
+
+# Build the production binary (Windows only)
+wails build -platform windows/amd64
+
+# Build without re-generating JS bindings (faster, equivalent for runtime use)
+wails build -platform windows/amd64 -skipbindings
+
+# Direct Go build (skips Wails asset embedding, requires -tags production)
+go build -tags production -o tokentally.exe .
+
+# Run locally (opens the Wails window + system tray)
+./tokentally.exe
+
+# Install / uninstall the background Windows service (requires admin — UAC prompt appears)
+./tokentally.exe --install
+./tokentally.exe --uninstall
+```
+
+## Architecture
+
+### Execution modes (single binary)
+
+`main.go` inspects CLI flags and dispatches to one of four modes:
+
+| Flag | Mode |
+| --- | --- |
+| *(none)* | Wails GUI + systray on main thread |
+| `--service` | Windows SCM service (scanner loop only) |
+| `--install` | Register SCM service + startup registry key (admin) |
+| `--uninstall` | Remove SCM service + startup registry key (admin) |
+
+The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS main thread on Windows.
+
+### Data flow
+
+```text
+~/.claude/projects/<slug>/<session>.jsonl
+         ↓ internal/scanner
+     tokentally.db (SQLite, WAL mode)
+         ↓ internal/db  (query helpers)
+         ↓ app/app.go   (Wails-bound methods)
+         ↓ window.go.App.*()   (JS ↔ Go bridge)
+     frontend/web/  (vanilla JS, hash router, ECharts)
+```
+
+### Key packages
+
+- **`internal/db`** — schema, all SQL query helpers (`ExpensivePrompts`, `OverviewTotals`, `ProjectSummary`, etc.), plan/tips persistence. `scanMaps` converts `sql.Rows` → `[]map[string]any`. No ORM.
+- **`internal/scanner`** — incremental JSONL walker. Tracks `(path, mtime, bytes_read)` per file; stops at partial lines for mid-flush safety. `evictPriorSnapshots` removes older streaming snapshots sharing `(session_id, message_id)` before upserting.
+- **`internal/pricing`** — loads `pricing.json` (rates per 1 M tokens, not per token). `CostFor` looks up by model name; tier fallback is present in the JSON but not yet wired in `CostFor`.
+- **`internal/tips`** — three rule-based tips (`cache-hit-low`, `high-output-ratio`, `many-sessions`). `AllTips` calls `OverviewTotals` and filters against dismissed tip keys.
+- **`app/app.go`** — `App` struct with all exported methods Wails binds to `window.go.App.*()`. `Startup` launches `scanLoop` (30 s ticker, emits `"scan"` Wails event after changes).
+- **`app/tray_windows.go`** — `//go:build windows`; `StartTray` → `systray.Run`. Menu: Open Dashboard, Scan Now, Quit.
+- **`app/service_windows.go`** — `//go:build windows`; `GetServiceStatus`, `InstallService`, `UninstallService` for the Settings page; elevation via PowerShell `Start-Process -Verb RunAs`.
+- **`svc/`** — `//go:build windows`; SCM service handler (`Execute` loop with pause/continue/stop), `Install`/`Uninstall` via `golang.org/x/sys/windows/svc/mgr`.
+
+### Frontend
+
+`frontend/` is served by Wails as embedded assets (no build step). `frontend/web/app.js` is the SPA entry point:
+
+- `_apiMap` maps URL paths to `window.go.App.*()` calls — this replaces all `fetch()` calls.
+- `api(path)` parses path + query string and routes to the right binding.
+- Hash router: `#/overview`, `#/prompts`, `#/sessions`, `#/sessions/<id>`, `#/projects`, `#/skills`, `#/tips`, `#/settings`.
+- `window.runtime.EventsOn('scan', () => render())` replaces SSE for live refresh.
+- `fmt.htmlSafe()` must be used for any user-derived string placed in innerHTML.
+
+Route modules live in `frontend/web/routes/*.js`. Each exports a default `async function(root)` that sets `root.innerHTML`.
+
+### SQL conventions
+
+- **Parameter binding always.** Any value reachable from user input goes through `?`; column names and `ORDER BY` direction may be interpolated only when they come from internal, caller-controlled values.
+- **`(session_id, message_id)`** is the streaming-snapshot dedup key (not `uuid`). See `evictPriorSnapshots`.
+- All token columns use `COALESCE(..., 0)` in aggregates.
+
+### Env vars
+
+| Var | Default |
+| --- | --- |
+| `TOKENTALLY_DB` | `~/.claude/tokentally.db` |
+| `TOKENTALLY_PROJECTS_DIR` | `~/.claude/projects` |
+| `TOKENTALLY_PRICING_JSON` | *(uses embedded pricing.json)* |
+
+### Pricing data
+
+`pricing.json` (embedded at build time, overridable via env var) has two top-level sections: `models` (exact name → rates per 1 M tokens) and `plans` (plan key → `{monthly, label}`). Rates use field names `input`, `output`, `cache_read`, `cache_create_5m`, `cache_create_1h` — **not** `_mtok` suffixes.
+
+## Build constraints
+
+All Windows-specific files use `//go:build windows` at the top. The entire binary only targets Windows (`main.go` has this constraint). Tests run on any platform since they use `:memory:` SQLite.

@@ -23,18 +23,20 @@ export const fmt = {
   ts: t => (t || '').slice(0, 16).replace('T', ' '),
 };
 
+const App = window.go.app.App;
+
 const _apiMap = {
-  '/api/overview': (qs) => window.go.App.GetOverview(qs.since||'', qs.until||''),
-  '/api/prompts':  (qs) => window.go.App.GetPrompts(parseInt(qs.limit||50), qs.sort||'tokens'),
-  '/api/projects': (qs) => window.go.App.GetProjects(qs.since||'', qs.until||''),
-  '/api/sessions': (qs) => window.go.App.GetSessions(parseInt(qs.limit||20), qs.since||'', qs.until||''),
-  '/api/tools':    (qs) => window.go.App.GetTools(qs.since||'', qs.until||''),
-  '/api/daily':    (qs) => window.go.App.GetDaily(qs.since||'', qs.until||''),
-  '/api/by-model': (qs) => window.go.App.GetByModel(qs.since||'', qs.until||''),
-  '/api/skills':   (qs) => window.go.App.GetSkills(qs.since||'', qs.until||''),
-  '/api/tips':     (_)  => window.go.App.GetTips(),
-  '/api/plan':     (_)  => window.go.App.GetPlan(),
-  '/api/scan':     (_)  => window.go.App.ScanNow(),
+  '/api/overview': (qs) => App.GetOverview(qs.since||'', qs.until||''),
+  '/api/prompts':  (qs) => App.GetPrompts(parseInt(qs.limit||50), qs.sort||'tokens'),
+  '/api/projects': (qs) => App.GetProjects(qs.since||'', qs.until||''),
+  '/api/sessions': (qs) => App.GetSessions(parseInt(qs.limit||20), qs.since||'', qs.until||''),
+  '/api/tools':    (qs) => App.GetTools(qs.since||'', qs.until||''),
+  '/api/daily':    (qs) => App.GetDaily(qs.since||'', qs.until||''),
+  '/api/by-model': (qs) => App.GetByModel(qs.since||'', qs.until||''),
+  '/api/skills':   (qs) => App.GetSkills(qs.since||'', qs.until||''),
+  '/api/tips':     (_)  => App.GetTips(),
+  '/api/plan':     (_)  => App.GetPlan(),
+  '/api/scan':     (_)  => App.ScanNow(),
 };
 
 export async function api(path, opts) {
@@ -43,13 +45,13 @@ export async function api(path, opts) {
 
   if (base.startsWith('/api/sessions/')) {
     const sid = base.split('/').pop();
-    return window.go.App.GetSessionTurns(sid);
+    return App.GetSessionTurns(sid);
   }
 
   if (opts && opts.method === 'POST') {
     const body = JSON.parse(opts.body || '{}');
-    if (base === '/api/tips/dismiss') return window.go.App.DismissTip(body.key||'');
-    if (base === '/api/plan') return window.go.App.SetPlan(body.plan||'');
+    if (base === '/api/tips/dismiss') return App.DismissTip(body.key||'');
+    if (base === '/api/plan') return App.SetPlan(body.plan||'');
   }
 
   const handler = _apiMap[base];
@@ -73,13 +75,12 @@ function buildTopbar() {
   const wrap = document.createElement('header');
   wrap.className = 'topbar';
   wrap.innerHTML = `
-    <div class="brand">Token<span style="color:var(--accent)">Tally</span></div>
+    <div class="brand"><img src="/web/icon.svg" class="mascot-logo" alt=""><span>Token<span style="color:var(--accent)">Tally</span></span></div>
     <nav>
       ${Object.keys(ROUTES).map(p => `<a href="#${p}" data-route="${p}">${p.slice(1)}</a>`).join('')}
     </nav>
     <div class="spacer"></div>
     <span class="pill" id="plan-pill">api</span>
-    <span class="pill muted" title="Cmd/Ctrl+B blurs sensitive text">⌘B blur</span>
   `;
   document.body.prepend(wrap);
 }
@@ -124,7 +125,7 @@ async function firstRun() {
   document.body.appendChild(overlay);
   await new Promise(res => $('#firstsave', overlay).addEventListener('click', async () => {
     const plan = $('#firstplan', overlay).value;
-    await window.go.App.SetPlan(plan);
+    await App.SetPlan(plan);
     localStorage.setItem('td.plan-set', '1');
     overlay.remove();
     res();
@@ -143,14 +144,6 @@ async function boot() {
 
   window.addEventListener('hashchange', render);
   await render();
-
-  // Privacy blur (Cmd+B / Ctrl+B)
-  window.addEventListener('keydown', e => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
-      e.preventDefault();
-      document.body.classList.toggle('privacy-on');
-    }
-  });
 
   // Live refresh via Wails events
   try {

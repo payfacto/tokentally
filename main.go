@@ -98,30 +98,29 @@ func runUI(dbPath, projectsDir string) {
 
 	assets, _ := fs.Sub(rawAssets, "frontend")
 
-	// Wails runs in a goroutine; systray must own the main thread on Windows.
-	go func() {
-		err := wails.Run(&options.App{
-			Title:            "TokenTally",
-			Width:            1100,
-			Height:           700,
-			MinWidth:         800,
-			MinHeight:        600,
-			BackgroundColour: &options.RGBA{R: 13, G: 13, B: 26, A: 255},
-			AssetServer: &assetserver.Options{
-				Assets: assets,
-			},
-			OnStartup: a.Startup,
-			Bind:      []any{a},
-		})
-		if err != nil {
-			log.Printf("wails: %v", err)
-		}
-	}()
+	// systray locks its own OS thread internally, so it can run in a goroutine.
+	// Wails stays on the main goroutine for the most stable WebView2 message loop.
+	go a.StartTray()
 
-	// systray.Run blocks on the main goroutine until the user quits.
-	a.StartTray(func() {
-		// Window focus/show is handled via the tray menu
+	err = wails.Run(&options.App{
+		Title:             "TokenTally",
+		Width:             1100,
+		Height:            700,
+		MinWidth:          800,
+		MinHeight:         600,
+		BackgroundColour:  &options.RGBA{R: 13, G: 13, B: 26, A: 255},
+		HideWindowOnClose: true, // keep runtime alive so tray can re-show the window
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup: a.Startup,
+		Bind:      []any{a},
 	})
+	if err != nil {
+		log.Printf("wails: %v", err)
+	}
+	// Wails exited (Ctrl+C, runtime.Quit, or error); kill the systray goroutine too.
+	os.Exit(0)
 }
 
 func loadPricing() *pricing.Pricing {

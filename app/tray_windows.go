@@ -4,24 +4,21 @@ package app
 
 import (
 	"os"
+	"time"
 
 	"github.com/getlantern/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// IconBytes is set by main.go from the embedded icon.png.
+// IconBytes is set by main.go from the embedded icon.ico.
 var IconBytes []byte
 
 // StartTray initialises the system tray. Must be called from the main goroutine.
-// wailsShow is a func that shows/focuses the Wails window.
-func (a *App) StartTray(wailsShow func()) {
-	systray.Run(
-		func() { a.onTrayReady(wailsShow) },
-		func() { /* on exit */ },
-	)
+func (a *App) StartTray() {
+	systray.Run(a.onTrayReady, func() {})
 }
 
-func (a *App) onTrayReady(wailsShow func()) {
+func (a *App) onTrayReady() {
 	if len(IconBytes) > 0 {
 		systray.SetIcon(IconBytes)
 	}
@@ -35,14 +32,21 @@ func (a *App) onTrayReady(wailsShow func()) {
 	for {
 		select {
 		case <-mOpen.ClickedCh:
-			wailsShow()
+			if a.ctx != nil {
+				runtime.WindowShow(a.ctx)
+				runtime.WindowUnminimise(a.ctx)
+				// Brief always-on-top pulse forces the window to the foreground on Windows.
+				runtime.WindowSetAlwaysOnTop(a.ctx, true)
+				go func() {
+					time.Sleep(150 * time.Millisecond)
+					runtime.WindowSetAlwaysOnTop(a.ctx, false)
+				}()
+			}
 		case <-mScan.ClickedCh:
 			go a.ScanNow() //nolint:errcheck
 		case <-mQuit.ClickedCh:
-			systray.Quit()
-			if a.ctx != nil {
-				runtime.Quit(a.ctx)
-			}
+			// os.Exit is the only reliable way to quit when systray owns the main
+			// thread; runtime.Quit + systray.Quit can deadlock on Windows.
 			os.Exit(0)
 		}
 	}

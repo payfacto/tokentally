@@ -37,10 +37,6 @@ export default async function (root) {
       </table>
       <p class="muted" style="margin-top:8px;font-size:11px">Rates per 1M tokens, USD.</p>
 
-      <hr class="divider">
-
-      <h3>Privacy</h3>
-      <p class="muted">Press <code>Cmd/Ctrl + B</code> anywhere to blur prompt text and other sensitive content for screenshots.</p>
     </div>
 
     <div class="card" id="service-card" style="margin-top:16px">
@@ -58,7 +54,7 @@ export default async function (root) {
 
   $('#save').addEventListener('click', async () => {
     const plan = $('#plan').value;
-    await window.go.App.SetPlan(plan);
+    await window.go.app.App.SetPlan(plan);
     state.plan = plan;
     document.getElementById('plan-pill').textContent = plan;
     $('#msg').textContent = 'Saved.';
@@ -69,7 +65,7 @@ export default async function (root) {
     const el = document.getElementById('svc-status');
     if (!el) return;
     try {
-      const status = await window.go.App.GetServiceStatus();
+      const status = await window.go.app.App.GetServiceStatus();
       if (!status.installed) {
         el.innerHTML = '<span style="color:var(--bad)">● Not installed</span>';
       } else {
@@ -83,11 +79,11 @@ export default async function (root) {
   refreshServiceStatus();
 
   document.getElementById('btn-install')?.addEventListener('click', async () => {
-    await window.go.App.InstallService().catch(() => {});
+    await window.go.app.App.InstallService().catch(() => {});
     setTimeout(refreshServiceStatus, 1500);
   });
   document.getElementById('btn-uninstall')?.addEventListener('click', async () => {
-    await window.go.App.UninstallService().catch(() => {});
+    await window.go.app.App.UninstallService().catch(() => {});
     setTimeout(refreshServiceStatus, 1500);
   });
 }

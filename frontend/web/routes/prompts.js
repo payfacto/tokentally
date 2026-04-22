@@ -52,7 +52,7 @@ export default async function (root) {
           ${rows.map((r,i) => `
             <tr data-i="${i}" style="cursor:pointer">
               <td class="${sort.key === 'recent' ? 'mono' : 'num mono'}">${sort.key === 'recent' ? fmt.ts(r.timestamp) : fmt.usd4(r.estimated_cost_usd)}</td>
-              <td class="blur-sensitive">${fmt.htmlSafe(fmt.short(r.prompt_text, 110))}</td>
+              <td>${fmt.htmlSafe(fmt.short(r.prompt_text, 110))}</td>
               <td><span class="badge ${fmt.modelClass(r.model)}">${fmt.htmlSafe(fmt.modelShort(r.model))}</span></td>
               <td class="num">${fmt.int(r.billable_tokens)}</td>
               <td class="num">${fmt.int(r.cache_read_tokens)}</td>
@@ -61,7 +61,6 @@ export default async function (root) {
         </tbody>
       </table>
     </div>
-    <div id="drawer"></div>
   `;
 
   root.querySelectorAll('.range-tabs button').forEach(btn => {
@@ -71,23 +70,25 @@ export default async function (root) {
   root.querySelectorAll('#prompts tbody tr').forEach(tr => {
     tr.addEventListener('click', () => {
       const r = rows[Number(tr.dataset.i)];
-      const drawer = document.getElementById('drawer');
-      drawer.innerHTML = `
-        <div class="card">
-          <h3 style="display:flex;align-items:center">
-            <span>Prompt detail</span>
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:760px;width:90vw;max-height:80vh;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;margin-bottom:12px;flex-shrink:0">
+            <strong style="font-size:14px">Prompt detail</strong>
             <span class="spacer"></span>
             <span class="badge ${fmt.modelClass(r.model)}">${fmt.htmlSafe(fmt.modelShort(r.model))}</span>
-          </h3>
-          <pre class="blur-sensitive">${fmt.htmlSafe(r.prompt_text || '')}</pre>
-          <div class="flex" style="margin-top:12px;flex-wrap:wrap;gap:14px">
+          </div>
+          <pre style="font-family:var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:12px;border-radius:6px;border:1px solid var(--border);font-size:12px;line-height:1.5;overflow-y:auto;flex:1;margin:0">${fmt.htmlSafe(r.prompt_text || '')}</pre>
+          <div class="flex" style="margin-top:12px;flex-wrap:wrap;gap:14px;flex-shrink:0">
             <span class="muted">${fmt.ts(r.timestamp)}</span>
             <span class="muted">${fmt.int(r.billable_tokens)} billable · ${fmt.int(r.cache_read_tokens)} cache rd · ~${fmt.usd4(r.estimated_cost_usd)} cache cost</span>
             <span class="spacer"></span>
-            <a href="#/sessions/${encodeURIComponent(r.session_id)}">Open session →</a>
+            <a href="#/sessions/${encodeURIComponent(r.session_id)}" onclick="this.closest('.modal-overlay').remove()">Open session →</a>
           </div>
         </div>`;
-      drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
     });
   });
 }
