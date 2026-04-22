@@ -28,8 +28,8 @@ var rawAssets embed.FS
 //go:embed pricing.json
 var rawPricing embed.FS
 
-//go:embed icon.png
-var iconPNG []byte
+//go:embed build/windows/icon.ico
+var iconICO []byte
 
 func main() {
 	installFlag := flag.Bool("install", false, "Install Windows service (requires admin)")
@@ -94,7 +94,7 @@ func runUI(dbPath, projectsDir string) {
 
 	p := loadPricing()
 	a := app.New(conn, projectsDir, p)
-	app.IconBytes = iconPNG
+	app.IconBytes = iconICO
 
 	assets, _ := fs.Sub(rawAssets, "frontend")
 
