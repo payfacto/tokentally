@@ -1,0 +1,100 @@
+//go:build darwin
+
+package main
+
+import (
+	"embed"
+	"flag"
+	"io/fs"
+	"log"
+	"os"
+	"path/filepath"
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"tokentally/app"
+	"tokentally/internal/db"
+	"tokentally/internal/pricing"
+)
+
+//go:embed all:frontend
+var rawAssets embed.FS
+
+//go:embed pricing.json
+var rawPricing embed.FS
+
+func main() {
+	// Service management flags are Windows-only; accepted but ignored on macOS
+	// so that cross-platform scripts don't break.
+	flag.Bool("install", false, "")
+	flag.Bool("uninstall", false, "")
+	flag.Bool("service", false, "")
+	flag.Parse()
+
+	dbPath := envOrDefault("TOKENTALLY_DB", filepath.Join(homeDir(), ".claude", "tokentally.db"))
+	projectsDir := envOrDefault("TOKENTALLY_PROJECTS_DIR", filepath.Join(homeDir(), ".claude", "projects"))
+
+	runUI(dbPath, projectsDir)
+}
+
+func runUI(dbPath, projectsDir string) {
+	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		log.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	p := loadPricing()
+	a := app.New(conn, projectsDir, p)
+
+	assets, _ := fs.Sub(rawAssets, "frontend")
+
+	err = wails.Run(&options.App{
+		Title:            "TokenTally",
+		Width:            1100,
+		Height:           700,
+		MinWidth:         800,
+		MinHeight:        600,
+		BackgroundColour: &options.RGBA{R: 13, G: 13, B: 26, A: 255},
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup: a.Startup,
+		Bind:      []any{a},
+	})
+	if err != nil {
+		log.Printf("wails: %v", err)
+	}
+}
+
+func loadPricing() *pricing.Pricing {
+	if override := os.Getenv("TOKENTALLY_PRICING_JSON"); override != "" {
+		f, err := os.Open(override)
+		if err == nil {
+			p, _ := pricing.Load(f)
+			f.Close()
+			return p
+		}
+	}
+	f, err := rawPricing.Open("pricing.json")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	p, _ := pricing.Load(f)
+	return p
+}
+
+func homeDir() string {
+	h, _ := os.UserHomeDir()
+	return h
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
