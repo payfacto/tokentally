@@ -9,19 +9,16 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"tokentally/app"
 	"tokentally/internal/db"
-	"tokentally/internal/pricing"
 )
 
 //go:embed all:frontend
 var rawAssets embed.FS
-
-//go:embed pricing.json
-var rawPricing embed.FS
 
 func main() {
 	// Service management flags are Windows-only; accepted but ignored on macOS
@@ -68,33 +65,4 @@ func runUI(dbPath, projectsDir string) {
 	}
 }
 
-func loadPricing() *pricing.Pricing {
-	if override := os.Getenv("TOKENTALLY_PRICING_JSON"); override != "" {
-		f, err := os.Open(override)
-		if err == nil {
-			p, _ := pricing.Load(f)
-			f.Close()
-			return p
-		}
-	}
-	f, err := rawPricing.Open("pricing.json")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	p, _ := pricing.Load(f)
-	return p
-}
-
-func homeDir() string {
-	h, _ := os.UserHomeDir()
-	return h
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
 

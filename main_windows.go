@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -18,15 +16,11 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"tokentally/app"
 	"tokentally/internal/db"
-	"tokentally/internal/pricing"
 	"tokentally/svc"
 )
 
 //go:embed all:frontend
 var rawAssets embed.FS
-
-//go:embed pricing.json
-var rawPricing embed.FS
 
 //go:embed build/windows/icon.ico
 var iconICO []byte
@@ -121,36 +115,6 @@ func runUI(dbPath, projectsDir string) {
 	}
 	// Wails exited (Ctrl+C, runtime.Quit, or error); kill the systray goroutine too.
 	os.Exit(0)
-}
-
-func loadPricing() *pricing.Pricing {
-	if override := os.Getenv("TOKENTALLY_PRICING_JSON"); override != "" {
-		f, err := os.Open(override)
-		if err == nil {
-			p, _ := pricing.Load(f)
-			f.Close()
-			return p
-		}
-	}
-	f, err := rawPricing.Open("pricing.json")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	p, _ := pricing.Load(f)
-	return p
-}
-
-func homeDir() string {
-	h, _ := os.UserHomeDir()
-	return h
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func addToStartup() {
