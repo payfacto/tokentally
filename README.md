@@ -4,7 +4,7 @@
   <img src="banner.png" alt="TokenTally — See it. Spend it. Shrink it." width="680">
 </p>
 
-A Windows desktop app for tracking Claude Code token usage, costs, and session history. Reads the JSONL transcripts that Claude Code writes to `~/.claude/projects/` and turns them into a live dashboard — no cloud, no account, no telemetry.
+A desktop app for tracking Claude Code token usage, costs, and session history. Reads the JSONL transcripts that Claude Code writes to `~/.claude/projects/` and turns them into a live dashboard — no cloud, no account, no telemetry. Runs on Windows and macOS.
 
 ---
 
@@ -14,17 +14,21 @@ A Windows desktop app for tracking Claude Code token usage, costs, and session h
 - **Cost estimates** — per-prompt and aggregate costs using live `pricing.json` rates
 - **Cache analytics** — cache hit rate, 5-minute vs 1-hour cache breakdown
 - **Incremental scanner** — only reads new bytes on each scan; safe with mid-flush partial writes
-- **Background service** — optional Windows SCM service keeps the DB up to date even when the dashboard is closed
+- **Background service** — optional Windows SCM service keeps the DB up to date even when the dashboard is closed (Windows only)
 - **Tips engine** — rule-based suggestions (low cache hit rate, high output ratio, short sessions)
 - **Privacy blur** — `Ctrl+B` / `Cmd+B` blurs prompt text and sensitive content for screenshots
 
 ## Installation
 
-### Quick start (no service)
+### macOS
+
+Download `TokenTally.app` and open it, or build from source (see below).
+
+### Windows — quick start (no service)
 
 Download `tokentally.exe` and run it. The dashboard opens immediately and scans every 30 seconds while it's open.
 
-### With background service (recommended)
+### Windows — with background service (recommended)
 
 Run once as administrator to install the Windows service and add the UI to your login startup:
 
@@ -40,10 +44,10 @@ tokentally.exe --uninstall
 
 ## Data
 
-| Item | Default path |
-|------|-------------|
-| Database | `%USERPROFILE%\.claude\tokentally.db` |
-| Transcripts scanned | `%USERPROFILE%\.claude\projects\` |
+| Item | Windows default | macOS default |
+|------|----------------|---------------|
+| Database | `%USERPROFILE%\.claude\tokentally.db` | `~/.claude/tokentally.db` |
+| Transcripts scanned | `%USERPROFILE%\.claude\projects\` | `~/.claude/projects/` |
 
 Override with environment variables `TOKENTALLY_DB` and `TOKENTALLY_PROJECTS_DIR`.
 
@@ -70,23 +74,33 @@ Edit `pricing.json` in the same directory as `tokentally.exe` and reload the das
 
 ## Building from source
 
-Prerequisites: [Go 1.22+](https://go.dev/dl/), [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation), Windows.
+Prerequisites: [Go 1.22+](https://go.dev/dl/), [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
 git clone <repo-url>
 cd tokentally
 
-# Run tests
+# Run tests (any platform)
 go test ./...
 
-# Production build
+# macOS
+wails build -platform darwin/arm64   # Apple Silicon
+wails build -platform darwin/amd64   # Intel
+open build/bin/TokenTally.app
+
+# macOS — dev mode (live reload)
+wails dev
+
+# Windows
 wails build -platform windows/amd64
 
-# Faster build (skips binding generation — functionally identical at runtime)
+# Windows — faster build (skips binding generation)
 wails build -platform windows/amd64 -skipbindings
 ```
 
-The binary lands at `build/bin/tokentally.exe`.
+Output: `build/bin/TokenTally.app` (macOS) or `build/bin/tokentally.exe` (Windows).
+
+> **macOS note:** The system tray and background service are Windows-only. On macOS, closing the window quits the app.
 
 ## Environment variables
 
