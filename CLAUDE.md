@@ -4,29 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**TokenTally** — a Windows desktop application (Wails v2 + Go) that reads Claude Code JSONL transcripts from `~/.claude/projects/` and presents a 7-tab token usage dashboard. The same binary runs as a Windows GUI, a system tray icon, and a background Windows SCM service.
+**TokenTally** — a cross-platform desktop application (Wails v2 + Go) that reads Claude Code JSONL transcripts from `~/.claude/projects/` and presents a 7-tab token usage dashboard. On Windows the same binary also runs as a system tray icon and a background Windows SCM service.
 
 ## Commands
 
 ```bash
-# Run all tests
+# Run all tests (any platform)
 go test ./...
 
 # Run tests for a single package
 go test ./internal/db/...
 go test ./internal/scanner/... -v -run TestScanDir
 
-# Build the production binary (Windows only)
+# macOS — dev mode (live reload)
+wails dev
+
+# macOS — production build → build/bin/TokenTally.app
+wails build -platform darwin/arm64
+wails build -platform darwin/amd64
+
+# Windows — production build → build/bin/tokentally.exe
 wails build -platform windows/amd64
 
-# Build without re-generating JS bindings (faster, equivalent for runtime use)
+# Windows — faster build (skips binding generation)
 wails build -platform windows/amd64 -skipbindings
-
-# Direct Go build (skips Wails asset embedding, requires -tags production)
-go build -tags production -o tokentally.exe .
-
-# Run locally (opens the Wails window + system tray)
-./tokentally.exe
 
 # Install / uninstall the background Windows service (requires admin — UAC prompt appears)
 ./tokentally.exe --install
@@ -35,9 +36,11 @@ go build -tags production -o tokentally.exe .
 
 ## Architecture
 
-### Execution modes (single binary)
+### Entry points
 
-`main.go` inspects CLI flags and dispatches to one of four modes:
+Platform entry points use Go's filename-based build constraints (`_windows.go`, `_darwin.go`). Shared helpers live in `main_shared.go` (no constraint).
+
+**Windows** — `main_windows.go` dispatches to one of four modes:
 
 | Flag | Mode |
 | --- | --- |
@@ -47,6 +50,8 @@ go build -tags production -o tokentally.exe .
 | `--uninstall` | Remove SCM service + startup registry key (admin) |
 
 The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS main thread on Windows.
+
+**macOS** — `main_darwin.go` runs the Wails GUI only (no systray, no service). WebKit owns the main thread; closing the window quits the app.
 
 ### Data flow
 
@@ -67,8 +72,10 @@ The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS mai
 - **`internal/pricing`** — loads `pricing.json` (rates per 1 M tokens, not per token). `CostFor` looks up by model name; tier fallback is present in the JSON but not yet wired in `CostFor`.
 - **`internal/tips`** — three rule-based tips (`cache-hit-low`, `high-output-ratio`, `many-sessions`). `AllTips` calls `OverviewTotals` and filters against dismissed tip keys.
 - **`app/app.go`** — `App` struct with all exported methods Wails binds to `window.go.App.*()`. `Startup` launches `scanLoop` (30 s ticker, emits `"scan"` Wails event after changes).
-- **`app/tray_windows.go`** — `//go:build windows`; `StartTray` → `systray.Run`. Menu: Open Dashboard, Scan Now, Quit.
-- **`app/service_windows.go`** — `//go:build windows`; `GetServiceStatus`, `InstallService`, `UninstallService` for the Settings page; elevation via PowerShell `Start-Process -Verb RunAs`.
+- **`app/tray_windows.go`** — `StartTray` → `systray.Run`. Menu: Open Dashboard, Scan Now, Quit.
+- **`app/tray_darwin.go`** — `StartTray` is a no-op; systray conflicts with WebKit's main-thread ownership on macOS.
+- **`app/service_windows.go`** — `GetServiceStatus`, `InstallService`, `UninstallService` for the Settings page; elevation via PowerShell `Start-Process -Verb RunAs`.
+- **`app/service_darwin.go`** — stubs for the above methods returning "not supported on macOS".
 - **`svc/`** — `//go:build windows`; SCM service handler (`Execute` loop with pause/continue/stop), `Install`/`Uninstall` via `golang.org/x/sys/windows/svc/mgr`.
 
 ### Frontend
@@ -103,4 +110,4 @@ Route modules live in `frontend/web/routes/*.js`. Each exports a default `async 
 
 ## Build constraints
 
-All Windows-specific files use `//go:build windows` at the top. The entire binary only targets Windows (`main.go` has this constraint). Tests run on any platform since they use `:memory:` SQLite.
+Platform-specific files use filename suffixes (`_windows.go`, `_darwin.go`) — no explicit `//go:build` tags needed. Files without a suffix compile on all platforms. Tests run on any platform since they use `:memory:` SQLite.
