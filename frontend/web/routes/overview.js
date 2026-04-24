@@ -39,17 +39,18 @@ export default async function (root) {
       ${rangeTabs}
     </div>
 
-    <div class="row cols-7">
-      ${kpi('Sessions',     fmt.int(totals.sessions),       fmt.int(totals.sessions))}
-      ${kpi('Turns',        fmt.int(totals.turns),          fmt.int(totals.turns))}
-      ${kpi('Input',        fmt.compact(totals.input_tokens),       fmt.int(totals.input_tokens) + ' tokens')}
-      ${kpi('Output',       fmt.compact(totals.output_tokens),      fmt.int(totals.output_tokens) + ' tokens')}
-      ${kpi('Cache read',   fmt.compact(totals.cache_read_tokens),  fmt.int(totals.cache_read_tokens) + ' tokens')}
-      ${kpi('Cache create', fmt.compact(cacheCreate),               fmt.int(cacheCreate) + ' tokens')}
-      <div class="card kpi cost">
-        <div class="label">Est. cost</div>
-        <div class="value" title="${fmt.usd(totals.cost_usd)}">${fmt.usd(totals.cost_usd)}</div>
-        ${planSubtitle()}
+    <div style="display:flex;gap:16px;align-items:stretch">
+      <div style="display:flex;align-items:center;justify-content:center;flex-shrink:0;width:90px">
+        <img src="/web/mascot.png" alt="" style="width:100%;height:100%;object-fit:contain;display:block">
+      </div>
+      <div class="kpi-row" style="flex:1">
+        ${kpi('Sessions',     fmt.int(totals.sessions),       fmt.int(totals.sessions))}
+        ${kpi('Turns',        fmt.int(totals.turns),          fmt.int(totals.turns))}
+        ${kpi('Input',        fmt.compact(totals.input_tokens),       fmt.int(totals.input_tokens) + ' tokens')}
+        ${kpi('Output',       fmt.compact(totals.output_tokens),      fmt.int(totals.output_tokens) + ' tokens')}
+        ${kpi('Cache read',   fmt.compact(totals.cache_read_tokens),  fmt.int(totals.cache_read_tokens) + ' tokens')}
+        ${kpi('Cache create', fmt.compact(cacheCreate),               fmt.int(cacheCreate) + ' tokens')}
+        ${costKpi(totals.cost_usd)}
       </div>
     </div>
 
@@ -115,9 +116,9 @@ export default async function (root) {
   stackedBarChart(document.getElementById('ch-daily-billable'), {
     categories: daily.map(d => d.day),
     series: [
-      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#4A9EFF' },
-      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#7C5CFF' },
-      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#E8A23B' },
+      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#eb733b' },
+      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#b04e20' },
+      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#b07800' },
     ],
   });
 
@@ -125,7 +126,7 @@ export default async function (root) {
   stackedBarChart(document.getElementById('ch-daily-cache'), {
     categories: daily.map(d => d.day),
     series: [
-      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#3FB68B' },
+      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#2d8a5e' },
     ],
   });
 
@@ -144,8 +145,8 @@ export default async function (root) {
       return name.length > 20 ? name.slice(0, 19) + '…' : name;
     }),
     series: [
-      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#4A9EFF' },
-      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#7C5CFF' },
+      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#eb733b' },
+      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#4ab0c0' },
     ],
   });
 
@@ -153,13 +154,21 @@ export default async function (root) {
   barChart(document.getElementById('ch-tools'), {
     categories: topTools.map(t => t.tool_name),
     values: topTools.map(t => t.calls),
-    color: '#7C5CFF',
+    color: '#b04e20',
   });
 }
 
-function planSubtitle() {
-  if (!state.pricing || state.plan === 'api') return '';
-  const p = state.pricing.plans[state.plan];
-  if (!p || !p.monthly) return '';
-  return `<div class="sub">pay $${p.monthly}/mo on ${fmt.htmlSafe(p.label)}</div>`;
+function costKpi(tokenCostUsd) {
+  const p = state.pricing?.plans?.[state.plan];
+  if (p?.monthly > 0) {
+    return `<div class="card kpi cost">
+      <div class="label">Est. cost</div>
+      <div class="value" title="${fmt.htmlSafe(p.label)}">${fmt.money(p.monthly)}<span style="font-size:11px;opacity:0.6">/mo</span></div>
+      <div class="sub">${fmt.money(tokenCostUsd)} token equiv</div>
+    </div>`;
+  }
+  return `<div class="card kpi cost">
+    <div class="label">Est. cost</div>
+    <div class="value" title="${fmt.money(tokenCostUsd)}">${fmt.money(tokenCostUsd)}</div>
+  </div>`;
 }

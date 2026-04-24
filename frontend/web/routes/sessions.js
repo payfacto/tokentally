@@ -8,9 +8,71 @@ const TYPE_ICONS = {
   summary:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
 };
 
+const COPY_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
 function typeCell(type) {
   const icon = TYPE_ICONS[type] || `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>`;
   return `<span style="display:inline-flex;align-items:center;gap:5px;color:var(--text)">${icon}${type}</span>`;
+}
+
+function prettyPrompt(text) {
+  if (!text) return '';
+  if (!/<[a-z_][a-z_0-9]*[^>]*>/.test(text)) return text;
+  return text
+    .replace(/(<[a-z_][a-z_0-9]*(?:\s[^>]*)?>)/g, '\n$1\n')
+    .replace(/(<\/[a-z_][a-z_0-9]*>)/g, '\n$1\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function turnContent(t) {
+  if (t.prompt_text) return { text: prettyPrompt(t.prompt_text), label: t.type === 'attachment' ? 'Hook Output' : 'Prompt' };
+  if (t.tool_calls_json) {
+    try {
+      const tools = JSON.parse(t.tool_calls_json);
+      const lines = tools.map(x => {
+        const input = x.input ? '\n' + JSON.stringify(x.input, null, 2) : '';
+        return `${x.name}${input}`;
+      });
+      return { text: lines.join('\n\n'), label: 'Tool calls' };
+    } catch { /* fall through */ }
+  }
+  return null;
+}
+
+function showTurnDetail(t) {
+  const content = turnContent(t);
+  if (!content) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:760px;width:90vw;max-height:80vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-shrink:0">
+        <strong style="font-size:14px">${content.label}</strong>
+        <span class="muted" style="font-size:12px">${typeCell(t.type)}</span>
+        ${t.model ? `<span class="badge ${fmt.modelClass(t.model)}">${fmt.htmlSafe(fmt.modelShort(t.model))}</span>` : ''}
+      </div>
+      <div style="position:relative;flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <pre id="turn-pre" style="font-family:var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:12px;padding-bottom:36px;border-radius:6px;border:1px solid var(--border);font-size:12px;line-height:1.5;overflow-y:auto;flex:1;margin:0">${fmt.htmlSafe(content.text)}</pre>
+        <button id="copy-btn" title="Copy to clipboard" style="position:absolute;bottom:8px;right:8px;background:transparent;border:1px solid var(--border);border-radius:4px;padding:5px 7px;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;line-height:1;transition:color 120ms,border-color 120ms">${COPY_ICON}</button>
+      </div>
+      <div class="flex" style="margin-top:12px;flex-wrap:wrap;gap:14px;flex-shrink:0">
+        <span class="muted">${fmt.ts(t.timestamp)}</span>
+        <span class="muted">${fmt.int(t.input_tokens)} in · ${fmt.int(t.output_tokens)} out · ${fmt.int(t.cache_read_tokens)} cache rd</span>
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#copy-btn').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(content.text);
+    const btn = overlay.querySelector('#copy-btn');
+    btn.style.color = 'var(--good)';
+    btn.style.borderColor = 'var(--good)';
+    setTimeout(() => { btn.style.color = ''; btn.style.borderColor = ''; }, 1200);
+  });
 }
 
 export default async function (root) {
@@ -59,7 +121,7 @@ async function renderSession(root, id) {
   root.innerHTML = `
     <div class="card">
       <h2 style="display:flex;align-items:center">
-        <span>Session ${fmt.htmlSafe(id.slice(0, SESSION_ID_PREFIX))}…</span>
+        <span>Session <span class="mono" style="font-size:14px;font-weight:400">${fmt.htmlSafe(id)}</span></span>
         <span class="spacer"></span>
         <a href="#/sessions" class="muted">← all sessions</a>
       </h2>
@@ -73,15 +135,18 @@ async function renderSession(root, id) {
 
     <div class="card" style="margin-top:16px">
       <h3>Turn-by-turn</h3>
-      <table>
+      <div style="overflow-x:auto">
+      <table id="turn-table">
         <thead><tr><th>time</th><th>type</th><th>model</th><th>prompt / tools</th><th class="num">in</th><th class="num">out</th><th class="num">cache rd</th></tr></thead>
         <tbody>
-          ${turns.map(t => {
+          ${turns.map((t, i) => {
             const tools = t.tool_calls_json ? JSON.parse(t.tool_calls_json) : [];
-            const summary = t.prompt_text ? fmt.short(t.prompt_text, 110)
+            const summary = t.prompt_text
+              ? fmt.short(t.type === 'attachment' ? t.prompt_text.split('\n')[0] : t.prompt_text, 110)
               : tools.length ? tools.map(x => x.name).join(' · ')
               : '';
-            return `<tr>
+            const clickable = !!(t.prompt_text || t.tool_calls_json);
+            return `<tr data-i="${i}"${clickable ? ' style="cursor:pointer"' : ''}>
               <td class="mono">${(t.timestamp || '').slice(11,19)}</td>
               <td>${typeCell(t.type)}${t.is_sidechain ? ' <span class="badge">side</span>' : ''}</td>
               <td>${t.model ? `<span class="badge ${fmt.modelClass(t.model)}">${fmt.htmlSafe(fmt.modelShort(t.model))}</span>` : ''}</td>
@@ -93,5 +158,12 @@ async function renderSession(root, id) {
           }).join('')}
         </tbody>
       </table>
+      </div>
     </div>`;
+
+  root.querySelectorAll('#turn-table tbody tr[data-i]').forEach(tr => {
+    const t = turns[Number(tr.dataset.i)];
+    if (!turnContent(t)) return;
+    tr.addEventListener('click', () => showTurnDetail(t));
+  });
 }

@@ -58,6 +58,20 @@ type jsonlRecord struct {
 	AgentID     string          `json:"agentId"`
 	PromptID    string          `json:"promptId"`
 	Message     json.RawMessage `json:"message"`
+	Attachment  json.RawMessage `json:"attachment"`
+}
+
+// attachmentObject mirrors the top-level "attachment" field on hook records.
+type attachmentObject struct {
+	Type       string `json:"type"`
+	HookName   string `json:"hookName"`
+	HookEvent  string `json:"hookEvent"`
+	Content    string `json:"content"`
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitCode   int    `json:"exitCode"`
+	DurationMs int    `json:"durationMs"`
+	Command    string `json:"command"`
 }
 
 // messageObject mirrors the nested "message" field.
@@ -302,6 +316,9 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 	}
 
 	promptText, promptChars := extractPromptText(rec.Type, content)
+	if rec.Type == "attachment" {
+		promptText, promptChars = attachmentPromptText(rec.Attachment)
+	}
 	toolUses := extractTools(rec.Timestamp, content)
 	toolResults := extractResults(rec.Timestamp, content)
 	allTools := make([]toolCall, 0, len(toolUses)+len(toolResults))
@@ -341,6 +358,33 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 	}
 
 	return row, allTools, nil
+}
+
+// attachmentPromptText builds a prompt_text value for hook attachment records.
+func attachmentPromptText(raw json.RawMessage) (*string, *int) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var att attachmentObject
+	if err := json.Unmarshal(raw, &att); err != nil {
+		return nil, nil
+	}
+	header := att.HookName
+	if att.HookEvent != "" && att.HookEvent != att.HookName {
+		header += " (" + att.HookEvent + ")"
+	}
+	body := strings.TrimSpace(att.Stdout)
+	if body == "" {
+		body = strings.TrimSpace(att.Content)
+	}
+	var text string
+	if body == "" {
+		text = header
+	} else {
+		text = header + "\n\n" + body
+	}
+	chars := len(text)
+	return &text, &chars
 }
 
 // extractPromptText returns the joined text content for user-type messages.

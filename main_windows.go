@@ -119,8 +119,9 @@ func runUI(dbPath, projectsDir string) {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: a.Startup,
-		Bind:      []any{a},
+		OnStartup:  a.Startup,
+		OnDomReady: a.SetWindowIcon,
+		Bind:       []any{a},
 	}); err != nil {
 		log.Printf("wails: %v", err)
 	}

@@ -68,8 +68,8 @@ The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS mai
 ### Key packages
 
 - **`internal/db`** — schema, all SQL query helpers (`ExpensivePrompts`, `OverviewTotals`, `ProjectSummary`, etc.), plan/tips persistence. `scanMaps` converts `sql.Rows` → `[]map[string]any`. No ORM.
-- **`internal/scanner`** — incremental JSONL walker. Tracks `(path, mtime, bytes_read)` per file; stops at partial lines for mid-flush safety. `evictPriorSnapshots` removes older streaming snapshots sharing `(session_id, message_id)` before upserting.
-- **`internal/pricing`** — loads `pricing.json` (rates per 1 M tokens, not per token). `CostFor` looks up by model name; tier fallback is present in the JSON but not yet wired in `CostFor`.
+- **`internal/scanner`** — incremental JSONL walker. Tracks `(path, mtime, bytes_read)` per file; stops at partial lines for mid-flush safety. `evictPriorSnapshots` removes older streaming snapshots sharing `(session_id, message_id)` before upserting. `attachment`-type records (hook results) are parsed via `attachmentPromptText`: the hook name + stdout are stored in `prompt_text` so they appear as clickable rows in the Sessions turn-by-turn view.
+- **`internal/pricing`** — loads `pricing.json` (rates per 1 M tokens, not per token). `CostFor` looks up by model name; tier fallback is present in the JSON but not yet wired in `CostFor`. The `plan` parameter accepted by `CostFor` is currently unused — cost is always token-based. The `monthly` field on plan entries is used by the Overview frontend only: subscription plans (monthly > 0) show the flat monthly fee as the headline cost with the token-equivalent below.
 - **`internal/tips`** — three rule-based tips (`cache-hit-low`, `high-output-ratio`, `many-sessions`). `AllTips` calls `OverviewTotals` and filters against dismissed tip keys.
 - **`app/app.go`** — `App` struct with all exported methods Wails binds to `window.go.App.*()`. `Startup` launches `scanLoop` (30 s ticker, emits `"scan"` Wails event after changes).
 - **`app/tray_windows.go`** — `StartTray` → `systray.Run`. Menu: Open Dashboard, Scan Now, Quit.

@@ -1,7 +1,7 @@
 const PALETTE = ['#eb733b', '#b04e20', '#2d8a5e', '#b07800', '#c03030', '#4ab0c0', '#9050b0'];
 
 const BASE = {
-  textStyle: { color: '#1c1008', fontFamily: 'Inter' },
+  textStyle: { color: '#1c1008', fontFamily: 'Figtree, system-ui, sans-serif' },
   color: PALETTE,
   grid: { left: 36, right: 12, top: 24, bottom: 24, containLabel: true },
 };
@@ -24,7 +24,7 @@ const TOOLTIP = {
   backgroundColor: '#f8efe5',
   borderColor: '#cbb89e',
   borderWidth: 1,
-  textStyle: { color: '#1c1008', fontFamily: 'Inter', fontSize: 12 },
+  textStyle: { color: '#1c1008', fontFamily: 'Figtree, system-ui, sans-serif', fontSize: 12 },
   padding: [8, 12],
 };
 
@@ -82,7 +82,20 @@ export function stackedBarChart(el, { categories, series, formatter }) {
     },
     xAxis: {
       ...X_AXIS, type: 'category', data: categories,
-      axisLabel: { ...X_AXIS.axisLabel, interval: categories.length > 20 ? 'auto' : 0, rotate: categories.length > 12 ? 45 : 0 },
+      axisLabel: {
+        ...X_AXIS.axisLabel,
+        interval: 'auto',
+        rotate: 45,
+        formatter: val => {
+          // 'YYYY-MM-DD' → 'Apr 7'
+          const p = (val || '').split('-');
+          if (p.length === 3) {
+            const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return mo[+p[1] - 1] + ' ' + +p[2];
+          }
+          return val;
+        },
+      },
     },
     yAxis: { ...Y_AXIS, type: 'value' },
     series: series.map((s, i) => ({
@@ -136,7 +149,7 @@ export function donutChart(el, data) {
     tooltip: {
       trigger: 'item',
       backgroundColor: '#f8efe5', borderColor: '#cbb89e', borderWidth: 1,
-      textStyle: { color: '#1c1008', fontFamily: 'Inter' },
+      textStyle: { color: '#1c1008', fontFamily: 'Figtree, system-ui, sans-serif' },
       formatter: p => `${p.name}<br/><b>${Number(p.value).toLocaleString()}</b> tokens (${p.percent.toFixed(1)}%)`,
     },
     legend: {

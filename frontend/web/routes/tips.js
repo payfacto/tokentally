@@ -1,7 +1,9 @@
 import { api, fmt } from '/web/app.js';
 
+const TIP_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--accent)"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 1 7 7c0 2.6-1.4 4.9-3.5 6.2-.5.3-.5.8-.5 1.3V17H9v-.5c0-.5 0-1-.5-1.3A7 7 0 0 1 12 2z"/></svg>`;
+
 export default async function (root) {
-  const tips = await api('/api/tips');
+  const tips = (await api('/api/tips')) || [];
   root.innerHTML = `
     <div class="card">
       <h2>Suggestions</h2>
@@ -11,7 +13,7 @@ export default async function (root) {
       ${tips.map(t => `
         <div class="tip">
           <div class="tip-head">
-            <span class="badge">${fmt.htmlSafe(t.category)}</span>
+            ${TIP_ICON}
             <strong>${fmt.htmlSafe(t.title)}</strong>
             <span class="spacer"></span>
             <button class="ghost" data-key="${fmt.htmlSafe(t.key)}">dismiss</button>
