@@ -13,6 +13,9 @@ vendor/
 *.test
 *.out
 coverage.html
+go.work
+go.work.sum
+*.log
 
 # Database & runtime data
 *.db
