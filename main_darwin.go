@@ -35,7 +35,9 @@ func main() {
 }
 
 func runUI(dbPath, projectsDir string) {
-	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		log.Fatalf("mkdir: %v", err)
+	}
 	conn, err := db.Open(dbPath)
 	if err != nil {
 		log.Fatalf("db.Open: %v", err)
@@ -45,9 +47,12 @@ func runUI(dbPath, projectsDir string) {
 	p := loadPricing()
 	a := app.New(conn, projectsDir, p)
 
-	assets, _ := fs.Sub(rawAssets, "frontend")
+	assets, err := fs.Sub(rawAssets, "frontend")
+	if err != nil {
+		log.Fatalf("assets: %v", err)
+	}
 
-	err = wails.Run(&options.App{
+	if err := wails.Run(&options.App{
 		Title:            "TokenTally",
 		Width:            1100,
 		Height:           700,
@@ -59,10 +64,7 @@ func runUI(dbPath, projectsDir string) {
 		},
 		OnStartup: a.Startup,
 		Bind:      []any{a},
-	})
-	if err != nil {
+	}); err != nil {
 		log.Printf("wails: %v", err)
 	}
 }
-
-

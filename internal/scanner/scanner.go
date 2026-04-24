@@ -1,8 +1,5 @@
 // Package scanner walks Claude Code JSONL transcript files and ingests new
 // content into the token-tally SQLite database.
-//
-// It is a Go port of the Python token_dashboard/scanner.py module and preserves
-// the same incremental, partial-line-safe, streaming-snapshot-dedup semantics.
 package scanner
 
 import (
@@ -10,6 +7,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -40,7 +38,10 @@ var targetFields = map[string]string{
 	"Skill":     "skill",
 }
 
-const maxTargetLen = 500
+const (
+	maxTargetLen  = 500
+	charsPerToken = 4 // rough approximation for tool result token estimation
+)
 
 // jsonlRecord mirrors the top-level structure of a Claude Code JSONL line.
 type jsonlRecord struct {
@@ -389,7 +390,7 @@ func extractResults(timestamp string, content []contentBlock) []toolCall {
 			continue
 		}
 		chars := resultChars(b.Content)
-		tokens := chars / 4
+		tokens := chars / charsPerToken
 		isError := 0
 		if b.IsError {
 			isError = 1
@@ -575,7 +576,7 @@ func loadFileState(conn *sql.DB, path string) (*fileState, error) {
 	err := conn.QueryRow(
 		`SELECT mtime, bytes_read FROM files WHERE path=?`, path,
 	).Scan(&state.mtime, &state.bytesRead)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

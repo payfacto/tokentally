@@ -49,7 +49,7 @@ func Load(r io.Reader) (*Pricing, error) {
 // CostFor returns the USD cost for a usage record.
 // It looks up the model directly; if not found, falls back to the tier.
 // Returns nil if neither model nor tier rates are found.
-func CostFor(model string, u Usage, p *Pricing, _ string) *float64 {
+func CostFor(model string, u Usage, p *Pricing, plan string) *float64 {
 	if p == nil {
 		return nil
 	}
