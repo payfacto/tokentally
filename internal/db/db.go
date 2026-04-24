@@ -1,5 +1,4 @@
 // Package db provides SQLite schema management and shared query helpers.
-// It is a Go port of the Python token_dashboard/db.py module.
 package db
 
 import (

@@ -6,6 +6,13 @@ import (
 	"tokentally/internal/db"
 )
 
+const (
+	lowCacheHitThreshold    = 0.20
+	highOutputRatioThreshold = 0.5
+	shortSessionTurnRatio   = 3.0
+	manySessionsMin         = 10
+)
+
 type tip struct {
 	Key     string
 	Title   string
@@ -26,7 +33,7 @@ var allTipDefs = []tip{
 			if total == 0 {
 				return false
 			}
-			return float64(read)/float64(total) < 0.20
+			return float64(read)/float64(total) < lowCacheHitThreshold
 		},
 	},
 	{
@@ -39,7 +46,7 @@ var allTipDefs = []tip{
 			if inp == 0 {
 				return false
 			}
-			return float64(out)/float64(inp) > 0.5
+			return float64(out)/float64(inp) > highOutputRatioThreshold
 		},
 	},
 	{
@@ -52,7 +59,7 @@ var allTipDefs = []tip{
 			if sessions == 0 {
 				return false
 			}
-			return sessions > 10 && float64(turns)/float64(sessions) < 3
+			return sessions > manySessionsMin && float64(turns)/float64(sessions) < shortSessionTurnRatio
 		},
 	},
 }

@@ -19,6 +19,8 @@ import (
 	"tokentally/svc"
 )
 
+const startupRegistryKey = `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+
 //go:embed all:frontend
 var rawAssets embed.FS
 
@@ -48,7 +50,10 @@ func main() {
 }
 
 func runInstall() {
-	exe, _ := os.Executable()
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalf("executable: %v", err)
+	}
 	if err := svc.Install(exe); err != nil {
 		fmt.Fprintf(os.Stderr, "install: %v\n", err)
 		os.Exit(1)
@@ -67,7 +72,9 @@ func runUninstall() {
 }
 
 func runService(dbPath, projectsDir string, interval time.Duration) {
-	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		log.Fatalf("mkdir: %v", err)
+	}
 	conn, err := db.Open(dbPath)
 	if err != nil {
 		log.Fatalf("db.Open: %v", err)
@@ -79,7 +86,9 @@ func runService(dbPath, projectsDir string, interval time.Duration) {
 }
 
 func runUI(dbPath, projectsDir string) {
-	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		log.Fatalf("mkdir: %v", err)
+	}
 	conn, err := db.Open(dbPath)
 	if err != nil {
 		log.Fatalf("db.Open: %v", err)
@@ -90,13 +99,16 @@ func runUI(dbPath, projectsDir string) {
 	a := app.New(conn, projectsDir, p)
 	app.IconBytes = iconICO
 
-	assets, _ := fs.Sub(rawAssets, "frontend")
+	assets, err := fs.Sub(rawAssets, "frontend")
+	if err != nil {
+		log.Fatalf("assets: %v", err)
+	}
 
 	// systray locks its own OS thread internally, so it can run in a goroutine.
 	// Wails stays on the main goroutine for the most stable WebView2 message loop.
 	go a.StartTray()
 
-	err = wails.Run(&options.App{
+	if err := wails.Run(&options.App{
 		Title:             "TokenTally",
 		Width:             1100,
 		Height:            700,
@@ -109,8 +121,7 @@ func runUI(dbPath, projectsDir string) {
 		},
 		OnStartup: a.Startup,
 		Bind:      []any{a},
-	})
-	if err != nil {
+	}); err != nil {
 		log.Printf("wails: %v", err)
 	}
 	// Wails exited (Ctrl+C, runtime.Quit, or error); kill the systray goroutine too.
@@ -118,16 +129,20 @@ func runUI(dbPath, projectsDir string) {
 }
 
 func addToStartup() {
-	exe, _ := os.Executable()
-	key := `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
-	runCmd("reg", "add", key, "/v", "TokenTally", "/t", "REG_SZ", "/d", exe, "/f")
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("addToStartup: %v", err)
+		return
+	}
+	runCmd("reg", "add", startupRegistryKey, "/v", "TokenTally", "/t", "REG_SZ", "/d", exe, "/f")
 }
 
 func removeFromStartup() {
-	key := `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
-	runCmd("reg", "delete", key, "/v", "TokenTally", "/f")
+	runCmd("reg", "delete", startupRegistryKey, "/v", "TokenTally", "/f")
 }
 
 func runCmd(name string, args ...string) {
-	exec.Command(name, args...).Run()
+	if err := exec.Command(name, args...).Run(); err != nil {
+		log.Printf("runCmd %s: %v", name, err)
+	}
 }

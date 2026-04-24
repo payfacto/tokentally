@@ -10,7 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// IconBytes is set by main.go from the embedded icon.ico.
+// IconBytes is set by main_windows.go from the embedded icon.ico.
 var IconBytes []byte
 
 // StartTray initialises the system tray. Must be called from the main goroutine.

@@ -13,6 +13,12 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const (
+	maxQueryLimit       = 1000
+	defaultPromptLimit  = 50
+	defaultSessionLimit = 20
+)
+
 // App is the Wails application struct — all exported methods are bound to the JS frontend.
 type App struct {
 	ctx         context.Context
@@ -43,8 +49,6 @@ func (a *App) scanLoop() {
 	}
 }
 
-// --- Data binding methods ---
-
 type overviewResult struct {
 	Sessions            int64    `json:"sessions"`
 	Turns               int64    `json:"turns"`
@@ -70,17 +74,14 @@ func (a *App) GetOverview(since, until string) (overviewResult, error) {
 		CacheCreate5mTokens: asInt64(totals["cache_create_5m_tokens"]),
 		CacheCreate1hTokens: asInt64(totals["cache_create_1h_tokens"]),
 	}
-	models, _ := db.ModelBreakdown(a.conn, since, until)
+	models, err := db.ModelBreakdown(a.conn, since, until)
+	if err != nil {
+		return overviewResult{}, err
+	}
 	var totalCost float64
 	for _, m := range models {
 		model, _ := m["model"].(string)
-		c := pricing.CostFor(model, pricing.Usage{
-			InputTokens:         int(asInt64(m["input_tokens"])),
-			OutputTokens:        int(asInt64(m["output_tokens"])),
-			CacheReadTokens:     int(asInt64(m["cache_read_tokens"])),
-			CacheCreate5mTokens: int(asInt64(m["cache_create_5m_tokens"])),
-			CacheCreate1hTokens: int(asInt64(m["cache_create_1h_tokens"])),
-		}, a.pricing, a.getPlan())
+		c := pricing.CostFor(model, usageFromRow(m), a.pricing, a.getPlan())
 		if c != nil {
 			totalCost += *c
 		}
@@ -90,8 +91,8 @@ func (a *App) GetOverview(since, until string) (overviewResult, error) {
 }
 
 func (a *App) GetPrompts(limit int, sort string) ([]map[string]any, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 50
+	if limit <= 0 || limit > maxQueryLimit {
+		limit = defaultPromptLimit
 	}
 	rows, err := db.ExpensivePrompts(a.conn, limit, sort)
 	if err != nil {
@@ -99,14 +100,7 @@ func (a *App) GetPrompts(limit int, sort string) ([]map[string]any, error) {
 	}
 	for _, r := range rows {
 		model, _ := r["model"].(string)
-		c := pricing.CostFor(model, pricing.Usage{
-			InputTokens:         int(asInt64(r["input_tokens"])),
-			OutputTokens:        int(asInt64(r["output_tokens"])),
-			CacheReadTokens:     int(asInt64(r["cache_read_tokens"])),
-			CacheCreate5mTokens: int(asInt64(r["cache_create_5m_tokens"])),
-			CacheCreate1hTokens: int(asInt64(r["cache_create_1h_tokens"])),
-		}, a.pricing, a.getPlan())
-		r["estimated_cost_usd"] = c
+		r["estimated_cost_usd"] = pricing.CostFor(model, usageFromRow(r), a.pricing, a.getPlan())
 	}
 	return rows, nil
 }
@@ -116,8 +110,8 @@ func (a *App) GetProjects(since, until string) ([]map[string]any, error) {
 }
 
 func (a *App) GetSessions(limit int, since, until string) ([]map[string]any, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 20
+	if limit <= 0 || limit > maxQueryLimit {
+		limit = defaultSessionLimit
 	}
 	return db.RecentSessions(a.conn, limit, since, until)
 }
@@ -141,13 +135,7 @@ func (a *App) GetByModel(since, until string) ([]map[string]any, error) {
 	}
 	for _, r := range rows {
 		model, _ := r["model"].(string)
-		c := pricing.CostFor(model, pricing.Usage{
-			InputTokens:         int(asInt64(r["input_tokens"])),
-			OutputTokens:        int(asInt64(r["output_tokens"])),
-			CacheReadTokens:     int(asInt64(r["cache_read_tokens"])),
-			CacheCreate5mTokens: int(asInt64(r["cache_create_5m_tokens"])),
-			CacheCreate1hTokens: int(asInt64(r["cache_create_1h_tokens"])),
-		}, a.pricing, a.getPlan())
+		c := pricing.CostFor(model, usageFromRow(r), a.pricing, a.getPlan())
 		r["cost_usd"] = c
 		r["cost_estimated"] = (c == nil)
 	}
@@ -189,6 +177,16 @@ func (a *App) ScanNow() (scanner.ScanResult, error) {
 func (a *App) getPlan() string {
 	plan, _ := db.GetPlan(a.conn)
 	return plan
+}
+
+func usageFromRow(r map[string]any) pricing.Usage {
+	return pricing.Usage{
+		InputTokens:         int(asInt64(r["input_tokens"])),
+		OutputTokens:        int(asInt64(r["output_tokens"])),
+		CacheReadTokens:     int(asInt64(r["cache_read_tokens"])),
+		CacheCreate5mTokens: int(asInt64(r["cache_create_5m_tokens"])),
+		CacheCreate1hTokens: int(asInt64(r["cache_create_1h_tokens"])),
+	}
 }
 
 func asInt64(v any) int64 {

@@ -6,9 +6,10 @@ import (
 	"os"
 	"os/exec"
 
-	"tokentally/svc"
-
+	winsvc "golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"tokentally/svc"
 )
 
 func (a *App) GetServiceStatus() map[string]any {
@@ -26,22 +27,28 @@ func (a *App) GetServiceStatus() map[string]any {
 	if err != nil {
 		return map[string]any{"installed": true, "state": "unknown"}
 	}
-	stateStr := "stopped"
-	if status.State == 4 { // SERVICE_RUNNING
-		stateStr = "running"
+	state := "stopped"
+	if status.State == winsvc.Running {
+		state = "running"
 	}
-	return map[string]any{"installed": true, "state": stateStr}
+	return map[string]any{"installed": true, "state": state}
 }
 
 // InstallService re-launches tokentally.exe --install elevated via UAC.
 func (a *App) InstallService() error {
-	exe, _ := os.Executable()
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	return runElevated(exe, "--install")
 }
 
 // UninstallService re-launches tokentally.exe --uninstall elevated via UAC.
 func (a *App) UninstallService() error {
-	exe, _ := os.Executable()
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	return runElevated(exe, "--uninstall")
 }
 
@@ -51,3 +58,4 @@ func runElevated(exe, arg string) error {
 		"-Verb", "RunAs", "-Wait",
 	).Run()
 }
+

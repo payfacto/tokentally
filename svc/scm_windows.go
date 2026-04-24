@@ -53,6 +53,7 @@ func uninstallSCM() error {
 	if err := s.Delete(); err != nil {
 		return fmt.Errorf("delete service: %w", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	const serviceStopDelay = 500 * time.Millisecond
+	time.Sleep(serviceStopDelay)
 	return nil
 }

@@ -21,8 +21,7 @@ type handler struct {
 	interval    time.Duration
 }
 
-// New creates a service handler. db must already be open.
-func New(db *sql.DB, projectsDir string, interval time.Duration) *handler {
+func newHandler(db *sql.DB, projectsDir string, interval time.Duration) *handler {
 	return &handler{db: db, projectsDir: projectsDir, interval: interval}
 }
 
@@ -65,12 +64,12 @@ func (h *handler) Execute(args []string, req <-chan svc.ChangeRequest, status ch
 
 // Run starts the SCM service loop.
 func Run(db *sql.DB, projectsDir string, interval time.Duration) error {
-	h := New(db, projectsDir, interval)
-	isInteractive, err := svc.IsAnInteractiveSession()
+	h := newHandler(db, projectsDir, interval)
+	isService, err := svc.IsWindowsService()
 	if err != nil {
 		return err
 	}
-	if isInteractive {
+	if !isService {
 		return debug.Run(ServiceName, h)
 	}
 	return svc.Run(ServiceName, h)

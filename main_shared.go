@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log"
 	"os"
 
 	"tokentally/internal/pricing"
@@ -14,8 +15,12 @@ func loadPricing() *pricing.Pricing {
 	if override := os.Getenv("TOKENTALLY_PRICING_JSON"); override != "" {
 		f, err := os.Open(override)
 		if err == nil {
-			p, _ := pricing.Load(f)
-			f.Close()
+			defer f.Close()
+			p, err := pricing.Load(f)
+			if err != nil {
+				log.Printf("pricing: failed to load override %s: %v", override, err)
+				return nil
+			}
 			return p
 		}
 	}
