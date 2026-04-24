@@ -1,4 +1,4 @@
-import { api, fmt } from '/web/app.js';
+import { api, fmt, SESSION_ID_PREFIX } from '/web/app.js';
 
 const SORTS = [
   { key: 'tokens', label: 'Most tokens' },
@@ -56,7 +56,7 @@ export default async function (root) {
               <td><span class="badge ${fmt.modelClass(r.model)}">${fmt.htmlSafe(fmt.modelShort(r.model))}</span></td>
               <td class="num">${fmt.int(r.billable_tokens)}</td>
               <td class="num">${fmt.int(r.cache_read_tokens)}</td>
-              <td><a href="#/sessions/${encodeURIComponent(r.session_id)}" class="mono" onclick="event.stopPropagation()">${fmt.htmlSafe(r.session_id.slice(0,8))}…</a></td>
+              <td><a href="#/sessions/${encodeURIComponent(r.session_id)}" class="mono" onclick="event.stopPropagation()">${fmt.htmlSafe(r.session_id.slice(0, SESSION_ID_PREFIX))}…</a></td>
             </tr>`).join('') || '<tr><td colspan="6" class="muted">no prompts yet</td></tr>'}
         </tbody>
       </table>

@@ -21,7 +21,7 @@ export default async function (root) {
     </div>`;
   root.querySelectorAll('button[data-key]').forEach(b => {
     b.addEventListener('click', async () => {
-      await window.go.app.App.DismissTip(b.dataset.key);
+      await api('/api/tips/dismiss', { method: 'POST', body: JSON.stringify({ key: b.dataset.key }) });
       location.reload();
     });
   });

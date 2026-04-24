@@ -1,16 +1,14 @@
-// app.js — router, state, fetch helpers
-
 export const $  = (sel, root=document) => root.querySelector(sel);
 export const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 export const fmt = {
-  int:   n => (n ?? 0).toLocaleString(),
+  int:     n => (n ?? 0).toLocaleString(),
   compact: n => COMPACT.format(n ?? 0),
-  usd:   n => n == null ? '—' : '$' + Number(n).toFixed(2),
-  usd4:  n => n == null ? '—' : '$' + Number(n).toFixed(4),
-  pct:   n => n == null ? '—' : (n * 100).toFixed(0) + '%',
-  short: (s, n=80) => s == null ? '' : (s.length > n ? s.slice(0, n - 1) + '…' : s),
+  usd:     n => n == null ? '—' : '$' + Number(n).toFixed(2),
+  usd4:    n => n == null ? '—' : '$' + Number(n).toFixed(4),
+  pct:     n => n == null ? '—' : (n * 100).toFixed(0) + '%',
+  short:   (s, n=80) => s == null ? '' : (s.length > n ? s.slice(0, n - 1) + '…' : s),
   htmlSafe: s => (s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   modelClass: m => {
     const s = (m || '').toLowerCase();
@@ -23,13 +21,45 @@ export const fmt = {
   ts: t => (t || '').slice(0, 16).replace('T', ' '),
 };
 
+export const SECONDS_PER_DAY = 86400;
+export const SESSION_ID_PREFIX = 8;
+
+export const RANGES = [
+  { key: '7d',  label: '7d',  days: 7 },
+  { key: '30d', label: '30d', days: 30 },
+  { key: '90d', label: '90d', days: 90 },
+  { key: 'all', label: 'All', days: null },
+];
+
+export function readRange() {
+  const q = location.hash.split('?')[1] || '';
+  const m = /(?:^|&)range=([^&]+)/.exec(q);
+  const k = m && decodeURIComponent(m[1]);
+  return RANGES.find(r => r.key === k) || RANGES[1];
+}
+
+export function writeRange(key, fallbackPath = '/overview') {
+  const base = location.hash.replace(/^#/, '').split('?')[0] || fallbackPath;
+  location.hash = '#' + base + '?range=' + encodeURIComponent(key);
+}
+
+export function sinceIso(range) {
+  if (!range.days) return null;
+  return new Date(Date.now() - range.days * SECONDS_PER_DAY * 1000).toISOString();
+}
+
+export function withSince(url, since) {
+  if (!since) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'since=' + encodeURIComponent(since);
+}
+
 const App = window.go.app.App;
 
-const _apiMap = {
+const apiMap = {
   '/api/overview': (qs) => App.GetOverview(qs.since||'', qs.until||''),
-  '/api/prompts':  (qs) => App.GetPrompts(parseInt(qs.limit||50), qs.sort||'tokens'),
+  '/api/prompts':  (qs) => App.GetPrompts(parseInt(qs.limit || '50', 10), qs.sort||'tokens'),
   '/api/projects': (qs) => App.GetProjects(qs.since||'', qs.until||''),
-  '/api/sessions': (qs) => App.GetSessions(parseInt(qs.limit||20), qs.since||'', qs.until||''),
+  '/api/sessions': (qs) => App.GetSessions(parseInt(qs.limit || '20', 10), qs.since||'', qs.until||''),
   '/api/tools':    (qs) => App.GetTools(qs.since||'', qs.until||''),
   '/api/daily':    (qs) => App.GetDaily(qs.since||'', qs.until||''),
   '/api/by-model': (qs) => App.GetByModel(qs.since||'', qs.until||''),
@@ -54,7 +84,7 @@ export async function api(path, opts) {
     if (base === '/api/plan') return App.SetPlan(body.plan||'');
   }
 
-  const handler = _apiMap[base];
+  const handler = apiMap[base];
   if (!handler) throw new Error(`No binding for ${base}`);
   return handler(qs);
 }
@@ -145,7 +175,6 @@ async function boot() {
   window.addEventListener('hashchange', render);
   await render();
 
-  // Live refresh via Wails events
   try {
     window.runtime.EventsOn('scan', () => render());
   } catch {}

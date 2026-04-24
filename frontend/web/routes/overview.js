@@ -1,34 +1,7 @@
-import { api, fmt, state } from '/web/app.js';
+import { api, fmt, state, RANGES, readRange, writeRange, sinceIso, withSince } from '/web/app.js';
 import { barChart, donutChart, groupedBarChart, stackedBarChart } from '/web/charts.js';
 
-const RANGES = [
-  { key: '7d',  label: '7d',  days: 7 },
-  { key: '30d', label: '30d', days: 30 },
-  { key: '90d', label: '90d', days: 90 },
-  { key: 'all', label: 'All', days: null },
-];
-
-function readRange() {
-  const q = (location.hash.split('?')[1] || '');
-  const m = /(?:^|&)range=([^&]+)/.exec(q);
-  const k = m && decodeURIComponent(m[1]);
-  return RANGES.find(r => r.key === k) || RANGES[1];
-}
-
-function writeRange(key) {
-  const base = (location.hash.replace(/^#/, '').split('?')[0]) || '/overview';
-  location.hash = '#' + base + '?range=' + encodeURIComponent(key);
-}
-
-function sinceIso(range) {
-  if (!range.days) return null;
-  return new Date(Date.now() - range.days * 86400 * 1000).toISOString();
-}
-
-function withSince(url, since) {
-  if (!since) return url;
-  return url + (url.includes('?') ? '&' : '?') + 'since=' + encodeURIComponent(since);
-}
+const TOP_CHART_LIMIT = 8;
 
 export default async function (root) {
   const range = readRange();
@@ -134,7 +107,6 @@ export default async function (root) {
     </div>
   `;
 
-  // range buttons
   root.querySelectorAll('.range-tabs button').forEach(btn => {
     btn.addEventListener('click', () => writeRange(btn.dataset.range));
   });
@@ -157,7 +129,6 @@ export default async function (root) {
     ],
   });
 
-  // by-model doughnut
   donutChart(document.getElementById('ch-model'),
     byModel.map(m => ({
       name: fmt.modelShort(m.model) || 'unknown',
@@ -166,8 +137,7 @@ export default async function (root) {
     })).filter(d => d.value > 0),
   );
 
-  // tokens by project — input vs output
-  const topProjects = projects.slice(0, 8);
+  const topProjects = projects.slice(0, TOP_CHART_LIMIT);
   groupedBarChart(document.getElementById('ch-projects'), {
     categories: topProjects.map(p => {
       const name = p.project_name || p.project_slug;
@@ -179,8 +149,7 @@ export default async function (root) {
     ],
   });
 
-  // top tools
-  const topTools = tools.slice(0, 8);
+  const topTools = tools.slice(0, TOP_CHART_LIMIT);
   barChart(document.getElementById('ch-tools'), {
     categories: topTools.map(t => t.tool_name),
     values: topTools.map(t => t.calls),

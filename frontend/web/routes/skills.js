@@ -1,29 +1,8 @@
-import { api, fmt } from '/web/app.js';
+import { api, fmt, RANGES, readRange, writeRange, sinceIso } from '/web/app.js';
 import { barChart } from '/web/charts.js';
 
-const RANGES = [
-  { key: '7d',  label: '7d',  days: 7 },
-  { key: '30d', label: '30d', days: 30 },
-  { key: '90d', label: '90d', days: 90 },
-  { key: 'all', label: 'All', days: null },
-];
-
-function readRange() {
-  const q = (location.hash.split('?')[1] || '');
-  const m = /(?:^|&)range=([^&]+)/.exec(q);
-  const k = m && decodeURIComponent(m[1]);
-  return RANGES.find(r => r.key === k) || RANGES[1];
-}
-
-function writeRange(key) {
-  const base = (location.hash.replace(/^#/, '').split('?')[0]) || '/skills';
-  location.hash = '#' + base + '?range=' + encodeURIComponent(key);
-}
-
-function sinceIso(range) {
-  if (!range.days) return null;
-  return new Date(Date.now() - range.days * 86400 * 1000).toISOString();
-}
+const SKILL_NAME_MAX = 25;
+const TOP_SKILLS_LIMIT = 12;
 
 export default async function (root) {
   const range = readRange();
@@ -32,7 +11,6 @@ export default async function (root) {
   const skills = await api(url);
 
   const totalInvocations = skills.reduce((s, r) => s + r.invocations, 0);
-  const totalSessions = new Set(); // not exact — we'd need another query; skip.
 
   const rangeTabs = `
     <div class="range-tabs" role="tablist">
@@ -83,12 +61,12 @@ export default async function (root) {
   `;
 
   root.querySelectorAll('.range-tabs button').forEach(btn => {
-    btn.addEventListener('click', () => writeRange(btn.dataset.range));
+    btn.addEventListener('click', () => writeRange(btn.dataset.range, '/skills'));
   });
 
-  const top = skills.slice(0, 12);
+  const top = skills.slice(0, TOP_SKILLS_LIMIT);
   barChart(document.getElementById('ch-skills'), {
-    categories: top.map(t => t.skill.length > 26 ? t.skill.slice(0, 25) + '…' : t.skill),
+    categories: top.map(t => t.skill.length > SKILL_NAME_MAX ? t.skill.slice(0, SKILL_NAME_MAX) + '…' : t.skill),
     values: top.map(t => t.invocations),
     color: '#3FB68B',
   });

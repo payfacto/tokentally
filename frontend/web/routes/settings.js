@@ -1,5 +1,7 @@
 import { api, state, $ } from '/web/app.js';
 
+const SERVICE_STATUS_DELAY = 1500;
+
 export default async function (root) {
   const cur = await api('/api/plan');
   const plans = Object.entries(cur.pricing?.plans || {});
@@ -54,7 +56,7 @@ export default async function (root) {
 
   $('#save').addEventListener('click', async () => {
     const plan = $('#plan').value;
-    await window.go.app.App.SetPlan(plan);
+    await api('/api/plan', { method: 'POST', body: JSON.stringify({ plan }) });
     state.plan = plan;
     document.getElementById('plan-pill').textContent = plan;
     $('#msg').textContent = 'Saved.';
@@ -80,10 +82,10 @@ export default async function (root) {
 
   document.getElementById('btn-install')?.addEventListener('click', async () => {
     await window.go.app.App.InstallService().catch(() => {});
-    setTimeout(refreshServiceStatus, 1500);
+    setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY);
   });
   document.getElementById('btn-uninstall')?.addEventListener('click', async () => {
     await window.go.app.App.UninstallService().catch(() => {});
-    setTimeout(refreshServiceStatus, 1500);
+    setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY);
   });
 }
