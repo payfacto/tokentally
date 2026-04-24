@@ -1,4 +1,4 @@
-import { api, fmt } from '/web/app.js';
+import { api, fmt, SESSION_ID_PREFIX } from '/web/app.js';
 
 const TYPE_ICONS = {
   user:       `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`,
@@ -33,7 +33,7 @@ async function renderList(root) {
               <td title="${fmt.htmlSafe(s.project_slug)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</td>
               <td class="num">${fmt.int(s.turns)}</td>
               <td class="num">${fmt.int(s.tokens)}</td>
-              <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0,8))}…</a></td>
+              <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0, SESSION_ID_PREFIX))}…</a></td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -43,26 +43,23 @@ async function renderList(root) {
 async function renderSession(root, id) {
   const turns = await api('/api/sessions/' + encodeURIComponent(id));
   let totalIn = 0, totalOut = 0, totalCacheRd = 0;
-  let modelCounts = {};
   for (const t of turns) {
     if (t.type !== 'assistant') continue;
     totalIn += t.input_tokens || 0;
     totalOut += t.output_tokens || 0;
     totalCacheRd += t.cache_read_tokens || 0;
-    const m = t.model || 'unknown';
-    modelCounts[m] = (modelCounts[m] || 0) + 1;
   }
-  const slug = (turns[0] && turns[0].project_slug) || '';
+  const slug = turns[0]?.project_slug || '';
   const cwd = (turns.find(t => t.cwd) || {}).cwd || '';
   const base = cwd ? cwd.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() : '';
   const project = base || slug;
-  const started = (turns[0] && turns[0].timestamp) || '';
-  const ended = (turns[turns.length-1] && turns[turns.length-1].timestamp) || '';
+  const started = turns[0]?.timestamp || '';
+  const ended = turns.at(-1)?.timestamp || '';
 
   root.innerHTML = `
     <div class="card">
       <h2 style="display:flex;align-items:center">
-        <span>Session ${fmt.htmlSafe(id.slice(0,8))}…</span>
+        <span>Session ${fmt.htmlSafe(id.slice(0, SESSION_ID_PREFIX))}…</span>
         <span class="spacer"></span>
         <a href="#/sessions" class="muted">← all sessions</a>
       </h2>

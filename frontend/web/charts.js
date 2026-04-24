@@ -1,5 +1,3 @@
-// charts.js — themed ECharts wrappers
-
 const PALETTE = ['#eb733b', '#b04e20', '#2d8a5e', '#b07800', '#c03030', '#4ab0c0', '#9050b0'];
 
 const BASE = {
