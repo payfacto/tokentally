@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
 
 	"tokentally/internal/db"
@@ -19,23 +22,99 @@ const (
 	defaultSessionLimit = 20
 )
 
+// defaultExchangeRates seeds initial USD→currency rates (approximate, as of 2026-04).
+// These are overwritten by RefreshExchangeRates once the user adds an API key.
+var defaultExchangeRates = map[string]float64{
+	"USD": 1.0,
+	"CAD": 1.39,
+	"EUR": 0.91,
+	"GBP": 0.78,
+	"AUD": 1.59,
+	"NZD": 1.72,
+	"CHF": 0.89,
+	"JPY": 152.0,
+	"MXN": 19.2,
+	"BRL": 5.75,
+}
+
+// supportedCurrencies lists the currencies we track exchange rates for.
+var supportedCurrencies = []string{"USD", "CAD", "EUR", "GBP", "AUD", "NZD", "CHF", "JPY", "MXN", "BRL"}
+
 // App is the Wails application struct — all exported methods are bound to the JS frontend.
 type App struct {
-	ctx         context.Context
-	conn        *sql.DB
-	projectsDir string
-	pricing     *pricing.Pricing
+	ctx            context.Context
+	conn           *sql.DB
+	projectsDir    string
+	pricing        *pricing.Pricing // live, rebuilt from DB on every change
+	defaultPricing *pricing.Pricing // immutable seed from embedded pricing.json
 }
 
 // New creates a new App. conn must already be open.
 func New(conn *sql.DB, projectsDir string, p *pricing.Pricing) *App {
-	return &App{conn: conn, projectsDir: projectsDir, pricing: p}
+	return &App{conn: conn, projectsDir: projectsDir, defaultPricing: p}
 }
 
 // Startup is called by Wails when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	seeded, _ := db.IsPricingSeeded(a.conn)
+	if !seeded {
+		a.seedFromDefaults()
+	}
+	a.reloadPricing()
 	go a.scanLoop()
+}
+
+// seedFromDefaults populates pricing_models, pricing_plans, and exchange_rates from defaults.
+func (a *App) seedFromDefaults() {
+	if a.defaultPricing == nil {
+		return
+	}
+	for name, r := range a.defaultPricing.Models {
+		db.UpsertPricingModel(a.conn, name, r.Tier, r.Input, r.Output, r.CacheRead, r.CacheCreate5m, r.CacheCreate1h) //nolint:errcheck
+	}
+	for key, pl := range a.defaultPricing.Plans {
+		db.UpsertPricingPlan(a.conn, key, pl.Label, pl.Monthly) //nolint:errcheck
+	}
+	for currency, rate := range defaultExchangeRates {
+		db.SeedExchangeRate(a.conn, currency, rate) //nolint:errcheck
+	}
+	db.MarkPricingSeeded(a.conn) //nolint:errcheck
+}
+
+// reloadPricing rebuilds a.pricing from the current DB rows.
+func (a *App) reloadPricing() {
+	models, err := db.GetPricingModels(a.conn)
+	if err != nil {
+		return
+	}
+	plans, err := db.GetPricingPlans(a.conn)
+	if err != nil {
+		return
+	}
+	p := &pricing.Pricing{
+		Models: make(map[string]pricing.ModelRates, len(models)),
+		Plans:  make(map[string]pricing.PlanDef, len(plans)),
+	}
+	for _, m := range models {
+		name, _ := m["model_name"].(string)
+		p.Models[name] = pricing.ModelRates{
+			Tier:          stringVal(m["tier"]),
+			Input:         asFloat64(m["input"]),
+			Output:        asFloat64(m["output"]),
+			CacheRead:     asFloat64(m["cache_read"]),
+			CacheCreate5m: asFloat64(m["cache_create_5m"]),
+			CacheCreate1h: asFloat64(m["cache_create_1h"]),
+		}
+	}
+	for _, pl := range plans {
+		key, _ := pl["plan_key"].(string)
+		p.Plans[key] = pricing.PlanDef{
+			Label:   stringVal(pl["label"]),
+			Monthly: asFloat64(pl["monthly"]),
+		}
+	}
+	a.pricing = p
 }
 
 func (a *App) scanLoop() {
@@ -147,7 +226,11 @@ func (a *App) GetSkills(since, until string) ([]map[string]any, error) {
 }
 
 func (a *App) GetTips() ([]map[string]any, error) {
-	return tips.AllTips(a.conn)
+	result, err := tips.AllTips(a.conn)
+	if result == nil {
+		result = []map[string]any{}
+	}
+	return result, err
 }
 
 func (a *App) DismissTip(key string) error {
@@ -159,11 +242,148 @@ func (a *App) GetPlan() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"plan": plan, "pricing": a.pricing}, nil
+	currency, _ := db.GetCurrency(a.conn)
+	rates, _ := db.GetExchangeRates(a.conn)
+	rate := rates[currency]
+	if rate == 0 {
+		rate = 1.0
+	}
+	return map[string]any{
+		"plan":          plan,
+		"pricing":       a.pricing,
+		"currency":      currency,
+		"exchange_rate": rate,
+	}, nil
 }
 
 func (a *App) SetPlan(plan string) error {
 	return db.SetPlan(a.conn, plan)
+}
+
+// --- Pricing model CRUD ---
+
+func (a *App) GetPricingModels() ([]map[string]any, error) {
+	return db.GetPricingModels(a.conn)
+}
+
+func (a *App) UpsertPricingModel(name, tier string, input, output, cacheRead, cache5m, cache1h float64) error {
+	if err := db.UpsertPricingModel(a.conn, name, tier, input, output, cacheRead, cache5m, cache1h); err != nil {
+		return err
+	}
+	a.reloadPricing()
+	return nil
+}
+
+func (a *App) DeletePricingModel(name string) error {
+	if err := db.DeletePricingModel(a.conn, name); err != nil {
+		return err
+	}
+	a.reloadPricing()
+	return nil
+}
+
+// --- Pricing plan CRUD ---
+
+func (a *App) GetPricingPlans() ([]map[string]any, error) {
+	return db.GetPricingPlans(a.conn)
+}
+
+func (a *App) UpsertPricingPlan(key, label string, monthly float64) error {
+	if err := db.UpsertPricingPlan(a.conn, key, label, monthly); err != nil {
+		return err
+	}
+	a.reloadPricing()
+	return nil
+}
+
+func (a *App) DeletePricingPlan(key string) error {
+	if err := db.DeletePricingPlan(a.conn, key); err != nil {
+		return err
+	}
+	a.reloadPricing()
+	return nil
+}
+
+// --- Currency and exchange rates ---
+
+func (a *App) GetCurrency() (string, error) {
+	return db.GetCurrency(a.conn)
+}
+
+func (a *App) SetCurrency(currency string) error {
+	return db.SetCurrency(a.conn, currency)
+}
+
+func (a *App) GetExchangeRates() (map[string]float64, error) {
+	return db.GetExchangeRates(a.conn)
+}
+
+func (a *App) SetExchangeRate(currency string, rate float64) error {
+	return db.SetExchangeRate(a.conn, currency, rate)
+}
+
+func (a *App) GetExchangeApiKey() (string, error) {
+	return db.GetExchangeApiKey(a.conn)
+}
+
+func (a *App) SetExchangeApiKey(key string) error {
+	return db.SetExchangeApiKey(a.conn, key)
+}
+
+// RefreshExchangeRates fetches live rates from exchangerate-api.com and stores them.
+func (a *App) RefreshExchangeRates() (map[string]float64, error) {
+	key, err := db.GetExchangeApiKey(a.conn)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, fmt.Errorf("no API key — enter your exchangerate-api.com key first")
+	}
+	resp, err := http.Get("https://v6.exchangerate-api.com/v6/" + key + "/latest/USD") //nolint:noctx
+	if err != nil {
+		return nil, fmt.Errorf("fetching rates: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Result          string             `json:"result"`
+		ErrorType       string             `json:"error-type"`
+		ConversionRates map[string]float64 `json:"conversion_rates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+	if payload.Result != "success" {
+		msg := payload.ErrorType
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return nil, fmt.Errorf("API error: %s", msg)
+	}
+	for _, cur := range supportedCurrencies {
+		if rate, ok := payload.ConversionRates[cur]; ok {
+			if err := db.SetExchangeRate(a.conn, cur, rate); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return db.GetExchangeRates(a.conn)
+}
+
+// --- Reset ---
+
+// ResetPricingToDefaults clears all model and plan rows and re-seeds from the
+// embedded pricing.json defaults. Currency is preserved.
+func (a *App) ResetPricingToDefaults() error {
+	if err := db.DeleteAllPricingModels(a.conn); err != nil {
+		return err
+	}
+	if err := db.DeleteAllPricingPlans(a.conn); err != nil {
+		return err
+	}
+	a.seedFromDefaults()
+	a.reloadPricing()
+	return nil
 }
 
 func (a *App) ScanNow() (scanner.ScanResult, error) {
@@ -202,4 +422,21 @@ func asInt64(v any) int64 {
 		return int64(n)
 	}
 	return 0
+}
+
+func asFloat64(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	}
+	return 0
+}
+
+func stringVal(v any) string {
+	s, _ := v.(string)
+	return s
 }

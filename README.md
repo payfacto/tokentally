@@ -11,7 +11,7 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 ## Features
 
 - **7-tab dashboard** — Overview, Prompts, Sessions, Projects, Skills, Tips, Settings
-- **Cost estimates** — per-prompt and aggregate costs using live `pricing.json` rates
+- **Cost estimates** — per-prompt and aggregate costs using live `pricing.json` rates; subscription plans show the flat monthly fee as the headline with token-equivalent cost below
 - **Cache analytics** — cache hit rate, 5-minute vs 1-hour cache breakdown
 - **Incremental scanner** — only reads new bytes on each scan; safe with mid-flush partial writes
 - **Background service** — optional Windows SCM service keeps the DB up to date even when the dashboard is closed (Windows only)

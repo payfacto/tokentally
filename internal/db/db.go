@@ -13,6 +13,24 @@ import (
 )
 
 const schema = `
+CREATE TABLE IF NOT EXISTS pricing_models (
+  model_name       TEXT PRIMARY KEY,
+  tier             TEXT NOT NULL DEFAULT '',
+  input            REAL NOT NULL DEFAULT 0,
+  output           REAL NOT NULL DEFAULT 0,
+  cache_read       REAL NOT NULL DEFAULT 0,
+  cache_create_5m  REAL NOT NULL DEFAULT 0,
+  cache_create_1h  REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS pricing_plans (
+  plan_key  TEXT PRIMARY KEY,
+  label     TEXT NOT NULL DEFAULT '',
+  monthly   REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS exchange_rates (
+  currency TEXT PRIMARY KEY,
+  rate     REAL NOT NULL DEFAULT 1.0
+);
 CREATE TABLE IF NOT EXISTS files (
   path        TEXT PRIMARY KEY,
   mtime       REAL    NOT NULL,
@@ -82,7 +100,7 @@ var nowFunc = func() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 func Open(path string) (*sql.DB, error) {
 	dsn := path
 	if path != ":memory:" {
-		dsn = path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)"
+		dsn = path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -503,6 +521,195 @@ func scanMaps(rows *sql.Rows) ([]map[string]any, error) {
 		results = append(results, row)
 	}
 	return results, rows.Err()
+}
+
+// GetPricingModels returns all model rate rows ordered by model name.
+func GetPricingModels(conn *sql.DB) ([]map[string]any, error) {
+	rows, err := conn.Query(
+		`SELECT model_name, tier, input, output, cache_read, cache_create_5m, cache_create_1h
+		 FROM pricing_models ORDER BY model_name`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetPricingModels: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// UpsertPricingModel inserts or replaces a model rate row.
+func UpsertPricingModel(conn *sql.DB, name, tier string, input, output, cacheRead, cache5m, cache1h float64) error {
+	_, err := conn.Exec(
+		`INSERT OR REPLACE INTO pricing_models
+		 (model_name, tier, input, output, cache_read, cache_create_5m, cache_create_1h)
+		 VALUES (?,?,?,?,?,?,?)`,
+		name, tier, input, output, cacheRead, cache5m, cache1h,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertPricingModel: %w", err)
+	}
+	return nil
+}
+
+// DeletePricingModel removes a model rate row by name.
+func DeletePricingModel(conn *sql.DB, name string) error {
+	_, err := conn.Exec(`DELETE FROM pricing_models WHERE model_name=?`, name)
+	if err != nil {
+		return fmt.Errorf("DeletePricingModel: %w", err)
+	}
+	return nil
+}
+
+// DeleteAllPricingModels removes every model rate row (used for reset-to-defaults).
+func DeleteAllPricingModels(conn *sql.DB) error {
+	_, err := conn.Exec(`DELETE FROM pricing_models`)
+	if err != nil {
+		return fmt.Errorf("DeleteAllPricingModels: %w", err)
+	}
+	return nil
+}
+
+// GetPricingPlans returns all plan rows ordered by monthly cost ascending.
+func GetPricingPlans(conn *sql.DB) ([]map[string]any, error) {
+	rows, err := conn.Query(`SELECT plan_key, label, monthly FROM pricing_plans ORDER BY monthly ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("GetPricingPlans: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// UpsertPricingPlan inserts or replaces a plan row.
+func UpsertPricingPlan(conn *sql.DB, key, label string, monthly float64) error {
+	_, err := conn.Exec(
+		`INSERT OR REPLACE INTO pricing_plans (plan_key, label, monthly) VALUES (?,?,?)`,
+		key, label, monthly,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertPricingPlan: %w", err)
+	}
+	return nil
+}
+
+// DeletePricingPlan removes a plan row by key.
+func DeletePricingPlan(conn *sql.DB, key string) error {
+	_, err := conn.Exec(`DELETE FROM pricing_plans WHERE plan_key=?`, key)
+	if err != nil {
+		return fmt.Errorf("DeletePricingPlan: %w", err)
+	}
+	return nil
+}
+
+// DeleteAllPricingPlans removes every plan row (used for reset-to-defaults).
+func DeleteAllPricingPlans(conn *sql.DB) error {
+	_, err := conn.Exec(`DELETE FROM pricing_plans`)
+	if err != nil {
+		return fmt.Errorf("DeleteAllPricingPlans: %w", err)
+	}
+	return nil
+}
+
+// GetCurrency returns the stored currency code, defaulting to "CAD".
+func GetCurrency(conn *sql.DB) (string, error) {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k='currency'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "CAD", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("GetCurrency: %w", err)
+	}
+	return v, nil
+}
+
+// SetCurrency stores the currency code.
+func SetCurrency(conn *sql.DB, currency string) error {
+	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('currency',?)`, currency)
+	if err != nil {
+		return fmt.Errorf("SetCurrency: %w", err)
+	}
+	return nil
+}
+
+// IsPricingSeeded returns true if the pricing tables have been populated from defaults.
+func IsPricingSeeded(conn *sql.DB) (bool, error) {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k='pricing_seeded'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("IsPricingSeeded: %w", err)
+	}
+	return v == "1", nil
+}
+
+// MarkPricingSeeded records that the pricing tables have been seeded.
+func MarkPricingSeeded(conn *sql.DB) error {
+	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('pricing_seeded','1')`)
+	if err != nil {
+		return fmt.Errorf("MarkPricingSeeded: %w", err)
+	}
+	return nil
+}
+
+// GetExchangeRates returns all stored currency→rate pairs (base: USD).
+func GetExchangeRates(conn *sql.DB) (map[string]float64, error) {
+	rows, err := conn.Query(`SELECT currency, rate FROM exchange_rates`)
+	if err != nil {
+		return nil, fmt.Errorf("GetExchangeRates: %w", err)
+	}
+	defer rows.Close()
+
+	rates := map[string]float64{}
+	for rows.Next() {
+		var currency string
+		var rate float64
+		if err := rows.Scan(&currency, &rate); err != nil {
+			return nil, fmt.Errorf("GetExchangeRates scan: %w", err)
+		}
+		rates[currency] = rate
+	}
+	return rates, rows.Err()
+}
+
+// SeedExchangeRate inserts a rate only if none exists for that currency (preserves user overrides).
+func SeedExchangeRate(conn *sql.DB, currency string, rate float64) error {
+	_, err := conn.Exec(`INSERT OR IGNORE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
+	if err != nil {
+		return fmt.Errorf("SeedExchangeRate: %w", err)
+	}
+	return nil
+}
+
+// SetExchangeRate inserts or replaces a rate for a currency (used by user edits and API refresh).
+func SetExchangeRate(conn *sql.DB, currency string, rate float64) error {
+	_, err := conn.Exec(`INSERT OR REPLACE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
+	if err != nil {
+		return fmt.Errorf("SetExchangeRate: %w", err)
+	}
+	return nil
+}
+
+// GetExchangeApiKey returns the stored exchangerate-api.com API key.
+func GetExchangeApiKey(conn *sql.DB) (string, error) {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k='exchange_api_key'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("GetExchangeApiKey: %w", err)
+	}
+	return v, nil
+}
+
+// SetExchangeApiKey stores the exchangerate-api.com API key.
+func SetExchangeApiKey(conn *sql.DB, key string) error {
+	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('exchange_api_key',?)`, key)
+	if err != nil {
+		return fmt.Errorf("SetExchangeApiKey: %w", err)
+	}
+	return nil
 }
 
 // distinctCWDs returns all distinct non-null cwd values for a project slug.
