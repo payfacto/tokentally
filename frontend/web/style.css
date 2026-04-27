@@ -292,30 +292,3 @@ button.ghost { background: transparent; color: var(--muted); }
 .flex { display: flex; align-items: center; gap: 8px; }
 .spacer { flex: 1; }
 hr.divider { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
-
-/* glossary */
-.glossary summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex; align-items: center; gap: 8px;
-}
-.glossary summary::-webkit-details-marker { display: none; }
-.glossary summary::before {
-  content: "▸"; color: var(--muted); font-size: 11px;
-  transition: transform 120ms;
-}
-.glossary[open] summary::before { transform: rotate(90deg); }
-.glossary dl {
-  margin: 14px 0 0; display: grid;
-  grid-template-columns: 160px 1fr; gap: 10px 20px;
-}
-.glossary dt {
-  color: var(--text); font-weight: 600; font-size: 12px;
-  text-transform: uppercase; letter-spacing: 0.04em;
-}
-.glossary dd { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
-.glossary dd code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-family: var(--mono); font-size: 12px; }
-@media (max-width: 720px) {
-  .glossary dl { grid-template-columns: 1fr; gap: 4px 0; }
-  .glossary dt { margin-top: 10px; }
-}
