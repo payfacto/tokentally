@@ -40,6 +40,9 @@ desktop.ini
 .env
 *.env.local
 
+# Git worktrees
+.worktrees/
+
 # Temp / handoff
 HANDOFF.md
 
