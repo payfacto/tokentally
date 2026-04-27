@@ -133,6 +133,33 @@ main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
 .kpi .delta.down { color: var(--bad);  }
 .kpi .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
 
+/* KPI tooltip — shown on hover via data-tooltip attribute */
+.kpi[data-tooltip] { position: relative; cursor: default; }
+.kpi[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  padding: 8px 10px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  white-space: normal;
+  z-index: 100;
+  font-family: var(--sans);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.kpi[data-tooltip]:hover::after { opacity: 1; }
+
 /* tables */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td {
