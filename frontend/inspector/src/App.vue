@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useSessionList, useSessionChunks } from './composables/useWails'
 import SessionInspector from './components/inspector/SessionInspector.vue'
 import type { Chunk, Session } from './lib/types'
@@ -29,6 +29,9 @@ function onHashChange() {
 onMounted(() => {
   window.addEventListener('hashchange', onHashChange)
   try { window.runtime.EventsOn('scan', refetchSessions) } catch { /* not in Wails env */ }
+  nextTick(() => {
+    document.querySelector('.session-row.active')?.scrollIntoView({ block: 'nearest' })
+  })
 })
 
 onUnmounted(() => {
