@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Chunk, ToolCallChunk } from '../../lib/types'
+import { copyMarkdown } from '../../lib/clipboard'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ContextBadge from './ContextBadge.vue'
 import ToolCallFrame from './ToolCallFrame.vue'
@@ -31,6 +32,27 @@ function viewerFor(tc: ToolCallChunk) {
   if ((tc.name === 'Task' || tc.name === 'Agent') && tc.subagentId) return SubagentTree
   return GenericViewer
 }
+
+function buildMarkdown(chunk: Chunk): string {
+  const ts = fmtTime(chunk.timestamp)
+  let md = `**Assistant** · ${ts}\n${fmtTok(chunk.inputTokens)} in · ${fmtTok(chunk.outputTokens)} out`
+
+  if (chunk.thinking) {
+    md += `\n\n<details><summary>Thinking</summary>\n\n${chunk.thinking}\n</details>`
+  }
+
+  for (const tc of chunk.toolCalls ?? []) {
+    const inputStr = JSON.stringify(tc.input, null, 2)
+    const errorPrefix = tc.isError ? '⚠ Error:\n' : ''
+    md += `\n\n**Tool: \`${tc.name}\`**\n\`\`\`json\n${inputStr}\n\`\`\`\n**Output:**\n\`\`\`\n${errorPrefix}${tc.output ?? ''}\n\`\`\``
+  }
+
+  return md
+}
+
+function copyChunk(e: MouseEvent) {
+  copyMarkdown(buildMarkdown(props.chunk), e.currentTarget as HTMLElement)
+}
 </script>
 
 <template>
@@ -54,10 +76,15 @@ function viewerFor(tc: ToolCallChunk) {
       </ToolCallFrame>
     </div>
 
-    <div class="token-row muted">
-      <span>in {{ fmtTok(chunk.inputTokens) }}</span>
-      <span>out {{ fmtTok(chunk.outputTokens) }}</span>
-      <span v-if="chunk.cacheRead">cache {{ fmtTok(chunk.cacheRead) }}</span>
+    <div class="turn-footer">
+      <div class="token-row muted">
+        <span>in {{ fmtTok(chunk.inputTokens) }}</span>
+        <span>out {{ fmtTok(chunk.outputTokens) }}</span>
+        <span v-if="chunk.cacheRead">cache {{ fmtTok(chunk.cacheRead) }}</span>
+      </div>
+      <button class="copy-btn" title="Copy as Markdown" @click="copyChunk">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </button>
     </div>
   </div>
 </template>
@@ -66,6 +93,15 @@ function viewerFor(tc: ToolCallChunk) {
 .ai-turn { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .turn-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .spacer { flex: 1; }
-.token-row { display: flex; gap: 12px; font-family: var(--mono); font-size: 10px; margin-top: 8px; }
+.turn-footer { display: flex; align-items: center; margin-top: 8px; }
+.token-row { display: flex; gap: 12px; font-family: var(--mono); font-size: 10px; flex: 1; }
 .muted { color: var(--muted); }
+.copy-btn {
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 5px;
+  cursor: pointer; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1; transition: color 120ms, border-color 120ms; flex-shrink: 0;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--text); }
 </style>
