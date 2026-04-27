@@ -101,6 +101,7 @@ type cacheCreationObject struct {
 type contentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"` // for thinking-type blocks
 	Name      string          `json:"name"`
 	ID        string          `json:"id"`
 	ToolUseID string          `json:"tool_use_id"`
@@ -116,6 +117,8 @@ type toolCall struct {
 	resultTokens *int
 	isError      int
 	timestamp    string
+	toolUseID    string // "id" field from tool_use blocks
+	inputJSON    string // raw JSON from the tool_use "input" field
 }
 
 // fileState holds the persisted scan position for one JSONL file.
@@ -301,6 +304,9 @@ type messageRow struct {
 	promptText           *string
 	promptChars          *int
 	toolCallsJSON        *string
+	thinkingText         *string
+	tokensBefore         *int
+	tokensAfter          *int
 }
 
 // parseLine converts a decoded JSONL record into a messageRow and tool-call list.
@@ -324,6 +330,21 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 	allTools := make([]toolCall, 0, len(toolUses)+len(toolResults))
 	allTools = append(allTools, toolUses...)
 	allTools = append(allTools, toolResults...)
+
+	// Extract thinking text for assistant records.
+	var thinkingText *string
+	if rec.Type == "assistant" {
+		var parts []string
+		for _, b := range content {
+			if b.Type == "thinking" && b.Thinking != "" {
+				parts = append(parts, b.Thinking)
+			}
+		}
+		if len(parts) > 0 {
+			s := strings.Join(parts, "")
+			thinkingText = &s
+		}
+	}
 
 	isSidechain := 0
 	if rec.IsSidechain {
@@ -355,6 +376,7 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 		promptText:          promptText,
 		promptChars:         promptChars,
 		toolCallsJSON:       buildToolCallsJSON(toolUses),
+		thinkingText:        thinkingText,
 	}
 
 	return row, allTools, nil
@@ -417,10 +439,16 @@ func extractTools(timestamp string, content []contentBlock) []toolCall {
 		if name == "" {
 			name = "unknown"
 		}
+		inputJSON := ""
+		if len(b.Input) > 0 {
+			inputJSON = string(b.Input)
+		}
 		out = append(out, toolCall{
 			toolName:  name,
 			target:    extractTarget(name, b.Input),
 			timestamp: timestamp,
+			toolUseID: b.ID,
+			inputJSON: inputJSON,
 		})
 	}
 	return out
@@ -568,8 +596,8 @@ INSERT OR REPLACE INTO messages
 (uuid,parent_uuid,session_id,project_slug,cwd,git_branch,cc_version,entrypoint,
  type,is_sidechain,agent_id,timestamp,model,stop_reason,prompt_id,message_id,
  input_tokens,output_tokens,cache_read_tokens,cache_create_5m_tokens,cache_create_1h_tokens,
- prompt_text,prompt_chars,tool_calls_json)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+ prompt_text,prompt_chars,tool_calls_json,thinking_text,tokens_before,tokens_after)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 	_, err := conn.Exec(q,
 		row.uuid, row.parentUUID, row.sessionID, row.projectSlug,
@@ -579,6 +607,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 		row.inputTokens, row.outputTokens, row.cacheReadTokens,
 		row.cacheCreate5mTokens, row.cacheCreate1hTokens,
 		row.promptText, row.promptChars, row.toolCallsJSON,
+		row.thinkingText, row.tokensBefore, row.tokensAfter,
 	)
 	if err != nil {
 		return fmt.Errorf("insert message %s: %w", row.uuid, err)
@@ -590,12 +619,14 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 func insertToolCall(conn *sql.DB, messageUUID, sessionID, projectSlug, timestamp string, tc toolCall) error {
 	const q = `
 INSERT INTO tool_calls
-(message_uuid,session_id,project_slug,tool_name,target,result_tokens,is_error,timestamp)
-VALUES (?,?,?,?,?,?,?,?)`
+(message_uuid,session_id,project_slug,tool_name,target,result_tokens,is_error,timestamp,
+ tool_use_id,input_json)
+VALUES (?,?,?,?,?,?,?,?,?,?)`
 
 	_, err := conn.Exec(q,
 		messageUUID, sessionID, projectSlug,
 		tc.toolName, tc.target, tc.resultTokens, tc.isError, timestamp,
+		tc.toolUseID, tc.inputJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("insert tool_call for %s: %w", messageUUID, err)
