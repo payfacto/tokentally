@@ -705,7 +705,10 @@ func TestGetSetRetentionDays(t *testing.T) {
 	if err := db.SetRetentionDays(conn, 30); err != nil {
 		t.Fatalf("SetRetentionDays(30) failed: %v", err)
 	}
-	days, _ = db.GetRetentionDays(conn)
+	days, err = db.GetRetentionDays(conn)
+	if err != nil {
+		t.Fatalf("GetRetentionDays after overwrite failed: %v", err)
+	}
 	if days != 30 {
 		t.Errorf("retention after overwrite = %d, want 30", days)
 	}
