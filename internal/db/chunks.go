@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // SessionChunk represents one logical turn in a conversation, structured for
@@ -51,6 +52,7 @@ type msgRow struct {
 
 // GetSessionChunks reconstructs a session as []SessionChunk from the messages
 // and tool_calls tables. It returns chunks ordered by message timestamp ASC.
+// Tool calls are fetched in a single batch query to avoid N+1 round-trips.
 func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 	rows, err := conn.Query(`
 		SELECT uuid, type, timestamp,
@@ -62,9 +64,6 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 		return nil, fmt.Errorf("GetSessionChunks: %w", err)
 	}
 
-	// Collect all message rows before closing the cursor so that the nested
-	// tool_calls queries below don't compete for the same SQLite connection
-	// (critical for :memory: databases used in tests).
 	var msgs []msgRow
 	for rows.Next() {
 		var m msgRow
@@ -82,24 +81,85 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 		return nil, fmt.Errorf("GetSessionChunks rows: %w", err)
 	}
 
+	// Collect assistant message UUIDs for a single batch tool_calls fetch.
+	var assistantUUIDs []string
+	for _, m := range msgs {
+		if m.msgType == "assistant" {
+			assistantUUIDs = append(assistantUUIDs, m.uuid)
+		}
+	}
+	toolCallMap := batchQueryToolCalls(conn, assistantUUIDs)
+
 	chunks := make([]SessionChunk, 0, len(msgs))
 	for _, m := range msgs {
-		chunk := buildChunk(conn, m.uuid, m.msgType, m.ts, m.promptText, m.thinkingText,
-			m.inputTok, m.outputTok, m.cacheRead, m.tokensBefore, m.tokensAfter)
+		chunk := buildChunk(m.msgType, m.ts, m.promptText, m.thinkingText,
+			m.inputTok, m.outputTok, m.cacheRead, m.tokensBefore, m.tokensAfter,
+			toolCallMap[m.uuid])
 		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
 }
 
-func buildChunk(conn *sql.DB, uuid, msgType, ts, promptText, thinkingText string,
-	inputTok, outputTok, cacheRead int, tokensBefore, tokensAfter *int) SessionChunk {
+// batchQueryToolCalls fetches all tool calls for the given message UUIDs in one
+// query and returns them grouped by message_uuid.
+func batchQueryToolCalls(conn *sql.DB, uuids []string) map[string][]ToolCallChunk {
+	if len(uuids) == 0 {
+		return map[string][]ToolCallChunk{}
+	}
+	placeholders := strings.Repeat("?,", len(uuids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(uuids))
+	for i, u := range uuids {
+		args[i] = u
+	}
+	rows, err := conn.Query(`
+		SELECT message_uuid, COALESCE(tool_use_id,''), tool_name,
+		       COALESCE(input_json,'{}'), COALESCE(output_text,''),
+		       is_error, COALESCE(duration_ms,0)
+		FROM tool_calls
+		WHERE message_uuid IN (`+placeholders+`) AND tool_name != '_tool_result'
+		ORDER BY rowid ASC`, args...)
+	if err != nil {
+		return map[string][]ToolCallChunk{}
+	}
+	defer rows.Close()
+
+	result := make(map[string][]ToolCallChunk)
+	for rows.Next() {
+		var msgUUID, id, name, inputJSON, outputText string
+		var isErrInt, durMs int
+		if err := rows.Scan(&msgUUID, &id, &name, &inputJSON, &outputText, &isErrInt, &durMs); err != nil {
+			continue
+		}
+		tc := ToolCallChunk{
+			ID:         id,
+			Name:       name,
+			Input:      json.RawMessage(inputJSON),
+			Output:     outputText,
+			IsError:    isErrInt != 0,
+			DurationMs: durMs,
+		}
+		if name == "Task" || name == "Agent" {
+			enrichSubagent(&tc, outputText, inputJSON)
+		}
+		result[msgUUID] = append(result[msgUUID], tc)
+	}
+	_ = rows.Err()
+	return result
+}
+
+func buildChunk(msgType, ts, promptText, thinkingText string,
+	inputTok, outputTok, cacheRead int, tokensBefore, tokensAfter *int,
+	tcs []ToolCallChunk) SessionChunk {
 
 	switch msgType {
 	case "user", "attachment":
 		return SessionChunk{Type: "user", Timestamp: ts, Text: promptText}
 
 	case "assistant":
-		tcs := queryToolCalls(conn, uuid)
+		if tcs == nil {
+			tcs = []ToolCallChunk{}
+		}
 		attrib := computeAttrib(thinkingText, inputTok, tcs)
 		return SessionChunk{
 			Type: "ai", Timestamp: ts,
@@ -121,43 +181,6 @@ func buildChunk(conn *sql.DB, uuid, msgType, ts, promptText, thinkingText string
 	default:
 		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
 	}
-}
-
-func queryToolCalls(conn *sql.DB, messageUUID string) []ToolCallChunk {
-	rows, err := conn.Query(`
-		SELECT COALESCE(tool_use_id,''), tool_name,
-		       COALESCE(input_json,'{}'), COALESCE(output_text,''),
-		       is_error, COALESCE(duration_ms,0)
-		FROM tool_calls
-		WHERE message_uuid = ? AND tool_name != '_tool_result'
-		ORDER BY rowid ASC`, messageUUID)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var out []ToolCallChunk
-	for rows.Next() {
-		var id, name, inputJSON, outputText string
-		var isErrInt, durMs int
-		if err := rows.Scan(&id, &name, &inputJSON, &outputText, &isErrInt, &durMs); err != nil {
-			continue
-		}
-		tc := ToolCallChunk{
-			ID:         id,
-			Name:       name,
-			Input:      json.RawMessage(inputJSON),
-			Output:     outputText,
-			IsError:    isErrInt != 0,
-			DurationMs: durMs,
-		}
-		if name == "Task" || name == "Agent" {
-			enrichSubagent(&tc, outputText, inputJSON)
-		}
-		out = append(out, tc)
-	}
-	_ = rows.Err()
-	return out
 }
 
 func enrichSubagent(tc *ToolCallChunk, outputText, inputJSON string) {

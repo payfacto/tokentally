@@ -803,3 +803,37 @@ func TestPurgeMessages_ZeroDaysIsNoop(t *testing.T) {
 		t.Errorf("PurgeMessages(-1) deleted %d rows, want 0 (no-op)", deleted)
 	}
 }
+
+func TestGetSessionChunks_MultipleTurnsWithTools(t *testing.T) {
+	conn := openMem(t)
+	for i := 0; i < 3; i++ {
+		ts := fmt.Sprintf("2025-01-01T10:00:%02dZ", i)
+		uuid := fmt.Sprintf("ai%d", i)
+		conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens)
+			VALUES (?,?,?,?,?,?)`, uuid, "sessM", "proj", "assistant", ts, 10) //nolint:errcheck
+		conn.Exec(`INSERT INTO tool_calls
+			(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,is_error,timestamp)
+			VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			uuid, "sessM", "proj", "Bash", "", fmt.Sprintf("tu%d", i),
+			`{"command":"ls"}`, "ok", 0, ts) //nolint:errcheck
+	}
+
+	chunks, err := db.GetSessionChunks(conn, "sessM")
+	if err != nil {
+		t.Fatalf("GetSessionChunks: %v", err)
+	}
+	if len(chunks) != 3 {
+		t.Fatalf("want 3 chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if c.Type != "ai" {
+			t.Errorf("chunk %d type: want ai, got %q", i, c.Type)
+		}
+		if len(c.ToolCalls) != 1 {
+			t.Errorf("chunk %d: want 1 tool call, got %d", i, len(c.ToolCalls))
+		}
+		if c.ToolCalls[0].Name != "Bash" {
+			t.Errorf("chunk %d tool name: want Bash, got %q", i, c.ToolCalls[0].Name)
+		}
+	}
+}
