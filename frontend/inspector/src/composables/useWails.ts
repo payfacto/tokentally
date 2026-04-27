@@ -8,6 +8,7 @@ declare global {
         App: {
           GetSessions(limit: number, since: string, until: string): Promise<Session[]>
           GetSessionChunks(sessionId: string): Promise<Chunk[]>
+          SaveHTMLExport(html: string): Promise<string>
         }
       }
     }
