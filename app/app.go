@@ -143,9 +143,10 @@ func needsInspectorBackfill(conn *sql.DB) bool {
 // runInspectorBackfill clears the file-scan cache to force a full rescan that
 // populates the new inspector columns, then starts the normal scan loop.
 func (a *App) runInspectorBackfill() {
-	a.conn.Exec(`DELETE FROM files`)                                                                        //nolint:errcheck
-	scanner.ScanDir(a.conn, a.projectsDir)                                                                 //nolint:errcheck
-	a.conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('inspector_backfill_done','1')`) //nolint:errcheck
+	a.conn.Exec(`DELETE FROM files`) //nolint:errcheck
+	if _, err := scanner.ScanDir(a.conn, a.projectsDir); err == nil {
+		a.conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('inspector_backfill_done','1')`) //nolint:errcheck
+	}
 	a.scanLoop()
 }
 
