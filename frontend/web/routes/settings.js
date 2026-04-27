@@ -157,7 +157,7 @@ async function renderAll(root) {
   bindModels(root, models);
   bindPlans(root, plans);
   bindService(root);
-  bindDataManagement(root, retentionDays);
+  bindDataManagement(root);
 }
 
 function renderModelsTable(models) {
@@ -364,9 +364,7 @@ function bindService(root) {
   });
 }
 
-function bindDataManagement(root, initialRetentionDays) {
-  let currentDays = initialRetentionDays;
-
+function bindDataManagement(root) {
   root.querySelector('#btn-scan-now').addEventListener('click', async () => {
     const msg = root.querySelector('#scan-msg');
     msg.textContent = 'Scanning…';
@@ -395,12 +393,15 @@ function bindDataManagement(root, initialRetentionDays) {
   });
 
   root.querySelector('#btn-save-retention').addEventListener('click', async () => {
-    const msg  = root.querySelector('#retention-msg');
-    const val  = parseInt(daysInput.value, 10) || 0;
-    await App.SetRetentionDays(val);
-    currentDays = val;
-    purgeBtn.disabled = val <= 0;
-    flash(msg, val > 0 ? `Saved — auto-purge every scan (>${val} days)` : 'Saved — retention off');
+    const msg = root.querySelector('#retention-msg');
+    const val = parseInt(daysInput.value, 10) || 0;
+    try {
+      await App.SetRetentionDays(val);
+      purgeBtn.disabled = val <= 0;
+      flash(msg, val > 0 ? `Saved — auto-purge every scan (>${val} days)` : 'Saved — retention off');
+    } catch (e) {
+      flash(msg, 'Error: ' + (e.message || String(e)), 'var(--bad)');
+    }
   });
 
   purgeBtn.addEventListener('click', async () => {
