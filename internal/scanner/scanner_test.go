@@ -124,6 +124,42 @@ func TestScanDir_PromptText(t *testing.T) {
 	}
 }
 
+func TestScanDir_StoresThinkingAndToolInput(t *testing.T) {
+	conn := openMem(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "proj-b"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"uuid":"t1","sessionId":"sess-think","type":"user","timestamp":"2025-01-02T10:00:00.000Z","message":{"content":[{"type":"text","text":"run echo"}]}}
+{"uuid":"t2","parentUuid":"t1","sessionId":"sess-think","type":"assistant","timestamp":"2025-01-02T10:00:01.000Z","message":{"id":"mid2","model":"claude-sonnet-4-6","content":[{"type":"thinking","thinking":"I should use bash"},{"type":"tool_use","name":"Bash","id":"tu-abc","input":{"command":"echo hello"}}],"usage":{"input_tokens":100,"output_tokens":50}}}
+`
+	if err := os.WriteFile(filepath.Join(dir, "proj-b", "session-think.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ScanDir(conn, dir); err != nil {
+		t.Fatalf("ScanDir: %v", err)
+	}
+
+	var thinkingText string
+	if err := conn.QueryRow(`SELECT COALESCE(thinking_text,'') FROM messages WHERE uuid='t2'`).Scan(&thinkingText); err != nil {
+		t.Fatalf("query thinking_text: %v", err)
+	}
+	if thinkingText != "I should use bash" {
+		t.Errorf("thinking_text: want 'I should use bash', got %q", thinkingText)
+	}
+
+	var toolUseID, inputJSON string
+	if err := conn.QueryRow(`SELECT COALESCE(tool_use_id,''), COALESCE(input_json,'') FROM tool_calls WHERE tool_name='Bash'`).Scan(&toolUseID, &inputJSON); err != nil {
+		t.Fatalf("query tool_calls: %v", err)
+	}
+	if toolUseID != "tu-abc" {
+		t.Errorf("tool_use_id: want 'tu-abc', got %q", toolUseID)
+	}
+	if inputJSON == "" {
+		t.Error("input_json should not be empty")
+	}
+}
+
 func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 	dir := t.TempDir()
 	projDir := filepath.Join(dir, "proj-dedup")
