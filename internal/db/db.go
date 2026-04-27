@@ -492,6 +492,32 @@ func SetPlan(conn *sql.DB, plan string) error {
 	return nil
 }
 
+// GetRetentionDays reads the retention policy from the plan table.
+// Returns 0 if not set (= keep forever / auto-purge disabled).
+func GetRetentionDays(conn *sql.DB) (int, error) {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k='retention_days'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var days int
+	fmt.Sscanf(v, "%d", &days)
+	return days, nil
+}
+
+// SetRetentionDays persists the retention policy.
+// days=0 effectively disables auto-purge.
+func SetRetentionDays(conn *sql.DB, days int) error {
+	_, err := conn.Exec(
+		`INSERT INTO plan (k,v) VALUES ('retention_days',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`,
+		fmt.Sprintf("%d", days),
+	)
+	return err
+}
+
 // DismissTip records a dismissed tip key with the current Unix timestamp.
 func DismissTip(conn *sql.DB, key string) error {
 	_, err := conn.Exec(
