@@ -713,3 +713,74 @@ func TestGetSetRetentionDays(t *testing.T) {
 		t.Errorf("retention after overwrite = %d, want 30", days)
 	}
 }
+
+func TestPurgeMessages(t *testing.T) {
+	conn := openMem(t)
+
+	// Old message + tool_call (timestamp safely in the past).
+	insertMessage(t, conn, map[string]any{
+		"uuid": "old1", "session_id": "s-old", "project_slug": "proj",
+		"type": "assistant", "timestamp": "2020-01-01T00:00:00Z",
+		"input_tokens": 100, "output_tokens": 50,
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "old1", "session_id": "s-old", "project_slug": "proj",
+		"tool_name": "Bash", "timestamp": "2020-01-01T00:00:00Z",
+	})
+
+	// Recent message (far future — will never be purged with days=1).
+	insertMessage(t, conn, map[string]any{
+		"uuid": "new1", "session_id": "s-new", "project_slug": "proj",
+		"type": "assistant", "timestamp": "2099-01-01T00:00:00Z",
+		"input_tokens": 200, "output_tokens": 80,
+	})
+
+	deleted, err := db.PurgeMessages(conn, 1) // purge anything older than 1 day
+	if err != nil {
+		t.Fatalf("PurgeMessages failed: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1 (only the old message)", deleted)
+	}
+
+	// Recent message must still be present.
+	var count int
+	conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='new1'`).Scan(&count) //nolint:errcheck
+	if count != 1 {
+		t.Errorf("recent message was incorrectly deleted")
+	}
+
+	// Old message must be gone.
+	conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='old1'`).Scan(&count) //nolint:errcheck
+	if count != 0 {
+		t.Errorf("old message was not deleted")
+	}
+
+	// Tool call for old message must be gone.
+	conn.QueryRow(`SELECT COUNT(*) FROM tool_calls WHERE message_uuid='old1'`).Scan(&count) //nolint:errcheck
+	if count != 0 {
+		t.Errorf("tool_call for old message was not deleted")
+	}
+}
+
+func TestPurgeMessages_ZeroDaysIsNoop(t *testing.T) {
+	conn := openMem(t)
+	insertMessage(t, conn, map[string]any{
+		"uuid": "m1", "session_id": "s1", "project_slug": "proj",
+		"type": "assistant", "timestamp": "2020-01-01T00:00:00Z",
+	})
+
+	deleted, err := db.PurgeMessages(conn, 0)
+	if err != nil {
+		t.Fatalf("PurgeMessages(0) failed: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("PurgeMessages(0) deleted %d rows, want 0 (no-op)", deleted)
+	}
+
+	var count int
+	conn.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count) //nolint:errcheck
+	if count != 1 {
+		t.Errorf("message was incorrectly deleted when days=0")
+	}
+}
