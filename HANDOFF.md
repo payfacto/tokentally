@@ -1,0 +1,111 @@
+# Handoff — tokentally
+
+## Session — 2026-04-22 10:30
+
+### What Was Done
+- Fixed tray "Quit TokenTally" staying in tray — removed `systray.Quit()` from menu handler (was deadlocking Win32 message loop); replaced with direct `os.Exit(0)`
+- Fixed Ctrl+C hanging — flipped threading model so Wails owns the main goroutine and systray runs in a locked goroutine; `os.Exit(0)` after `wails.Run()` returns now kills everything cleanly
+- Fixed "Open Dashboard" tray button not showing window — added `HideWindowOnClose: true` to keep runtime alive, added always-on-top pulse trick (`WindowSetAlwaysOnTop` briefly true then false) to force foreground focus
+- Fixed "TokenTally (Not Responding)" at startup — root cause was Wails in a goroutine with new Go WebView2Loader; moving Wails back to main goroutine resolved it
+- Fixed UI stuck on "loading…" forever — JS bindings used `window.go.App.*` but Wails routes via package name: correct path is `window.go.app.App.*` (lowercase `app` = Go package); every API call was silently hanging
+- Created `~/.claude/skills/wails-desktop` skill documenting all Wails lessons
+
+### Files Changed
+- `app/tray_windows.go` — quit uses `os.Exit(0)` directly; open-dashboard adds always-on-top pulse; `time` import added
+- `main.go` — Wails on main goroutine, systray in `go a.StartTray()`; `os.Exit(0)` after `wails.Run()` returns; removed old signal handler approach
+- `frontend/web/app.js` — `const App = window.go.app.App` alias; all `window.go.App.*` calls replaced with `App.*`
+- `frontend/web/routes/settings.js` — `window.go.App.*` → `window.go.app.App.*`
+- `frontend/web/routes/tips.js` — `window.go.App.*` → `window.go.app.App.*`
+- `~/.claude/skills/wails-desktop/SKILL.md` — new skill created (not in repo)
+
+### Decisions Made
+- Wails on main goroutine, systray in non-main goroutine — `getlantern/systray` calls `runtime.LockOSThread()` internally on Windows so it works in any goroutine; Wails/WebView2 is more stable on the main OS thread with the new Go WebView2Loader
+- No `systray.Quit()` in quit handler — can deadlock; OS removes tray icon automatically when process exits via `os.Exit(0)`
+- JS bindings alias pattern (`const App = window.go.app.App`) — single place to fix if package name ever changes; cleaner call sites than `window['go']['app']['App']` everywhere
+- Binary is built with `go build -tags production -o tokentally.exe .` for iteration; `wails build` for final release (adds proper Windows manifest + DPI settings)
+
+### Inferred Next Steps
+- **Smoke-test all 7 tabs** — Overview, Prompts, Sessions, Projects, Skills, Tips, Settings — confirm data renders correctly now that the namespace fix is in
+- **Verify tray fully works** — Open Dashboard (focus), Scan Now, Quit — all three menu items
+- **Checkpoint the WAL** — DB is 42 MB with a 4.1 MB WAL from a force-killed previous session; run `PRAGMA wal_checkpoint(FULL)` or restart the app cleanly to flush it
+- **Consider `wails build` for distribution** — `go build -tags production` skips Windows manifest embedding (DPI awareness, UAC level); use `wails build -platform windows/amd64` for the distributable `.exe`
+- **Service install/uninstall** — Settings tab has Install/Uninstall Service buttons; these haven't been tested yet this session
+
+### Open Questions / Blockers
+- The `wails-desktop` skill notes the "Open Dashboard" always-on-top trick but it hasn't been confirmed working in this session (window refused to appear before the threading fix; test now that threading is correct)
+- `GetServiceStatus` / `InstallService` / `UninstallService` in `app/service_windows.go` — these use PowerShell elevation; not tested
+- go.mod declares Wails v2.12.0 but the Wails CLI might be a different patch version — run `wails build` and check for version warnings before shipping
+
+## Session — 2026-04-27 16:00
+
+### What Was Done
+- Merged `feature/session-inspector` (16 commits) into `main` — full Session Inspector feature landed
+- Fixed `wails.json` `frontend:build` to use `npm run build --prefix` instead of `cd && npm run build` (Wails on Windows can't exec shell builtins like `cd`)
+- Fixed `frontend/inspector/vite.config.ts` to define `process.env.NODE_ENV: "production"` — without this the Vue IIFE bundle silently failed in the browser because Vue's dev checks reference `process.env.NODE_ENV` which doesn't exist in a bare browser context; bundle shrank from 115 kB to 79 kB after fix
+- Fixed `wails.json` prefix path: Wails runs `frontend:install`/`frontend:build` from the `frontend/` directory, so the path must be `--prefix inspector` (not `--prefix frontend/inspector` which doubled the directory)
+- Added Node.js prerequisite and `npm install --prefix frontend/inspector` step to `README.md` and `CLAUDE.md`
+- Smoke-tested the Vue inspector via Chrome DevTools MCP: sidebar renders session list, clicking a session loads chunks, user/AI turns render correctly, thinking blocks collapse, tool call frames (Bash, Read, Write) display with output, compact boundary shows correctly, zero JS errors
+
+### Files Changed
+- `wails.json` — two fixes: `cd` → `--prefix` for Windows compat (`697de90`), then `frontend/inspector` → `inspector` for correct Wails CWD (`5f0c83a`)
+- `frontend/inspector/vite.config.ts` — added `define: { 'process.env.NODE_ENV': '"production"' }` (`7293a47`)
+- `README.md` — added Node.js to prerequisites, added `npm install --prefix frontend/inspector` step (`8adb469`)
+- `CLAUDE.md` — added `npm install --prefix frontend/inspector` step to Commands section (`8adb469`)
+
+### Decisions Made
+- `process.env.NODE_ENV` define in vite.config — required for IIFE builds targeting bare browsers; Vite doesn't automatically replace it in library/IIFE mode
+- `wails.json` prefix is `inspector` not `frontend/inspector` — Wails v2 runs frontend lifecycle commands from the `frontend/` directory, not the project root
+- README/CLAUDE.md use `--prefix frontend/inspector` (project-root-relative for manual use) while `wails.json` uses `--prefix inspector` (frontend-dir-relative for Wails) — intentionally different
+
+### Inferred Next Steps
+- Confirm `wails build -platform windows/amd64 -skipbindings` succeeds end-to-end now that the prefix path is fixed (`5f0c83a`)
+- Run the built `tokentally.exe` and do a live smoke test: navigate to Sessions tab, select a real session, verify chunks render with real DB data
+- The inspector backfill runs on first launch (clears `files` table, rescans all JSONL, sets `inspector_backfill_done` flag) — verify this completes without errors and the Sessions tab loads after a few seconds
+
+### Open Questions / Blockers
+- `wails build` with the corrected `wails.json` has not yet been confirmed working — the path fix (`5f0c83a`) was committed immediately after the build error; needs a fresh build run to verify
+
+## Session — 2026-04-27 22:00
+
+### What Was Done
+
+- Removed the "What do these numbers mean?" glossary `<details>` card from the Overview page — KPI tooltips (added in previous session) made it redundant; committed `8d88a92`
+- Brainstormed and designed "Scan Now + Data Retention" feature: Settings page gets a new "Data Management" card with a manual scan trigger and a configurable retention purge (auto on every scan tick, manual on demand)
+- Implemented full feature via subagent-driven development across 4 tasks and 9 commits:
+  - `GetRetentionDays` / `SetRetentionDays` DB helpers (plan k/v table, `strconv.Atoi` for safe parse, error wrapping) — `224da66`, `2ce4918`
+  - `PurgeMessages` DB helper (transactional DELETE of `tool_calls` then `messages` by ISO8601 timestamp cutoff; `files` table intentionally untouched) — `f660897`, `a31b3df`
+  - `App.GetRetentionDays`, `App.SetRetentionDays`, `App.PurgeOlderThan` Wails-bound wrappers; `scanLoop` auto-purge on each tick — `4df678b`, `651a82e`
+  - Frontend "Data Management" card in Settings: Scan Now button, retention-days input + Save, Purge Now (red, confirm dialog, disabled when days=0) — `f6bd0e8`, `971f4e6`
+- Added files-table invariant test and `scanLoop` intent comment — `115e14e`
+
+### Files Changed
+
+- `frontend/web/routes/overview.js` — removed glossary `<details>` card (`8d88a92`)
+- `frontend/web/style.css` — removed `.glossary` CSS rules (`8d88a92`)
+- `internal/db/db.go` — added `GetRetentionDays`, `SetRetentionDays`, `PurgeMessages`
+- `internal/db/db_test.go` — added `TestGetSetRetentionDays`, `TestPurgeMessages`, `TestPurgeMessages_ZeroDaysIsNoop` (including files-table invariant assertion)
+- `app/app.go` — added `GetRetentionDays`, `SetRetentionDays`, `PurgeOlderThan` methods; updated `scanLoop` with auto-purge + intent comment
+- `frontend/web/routes/settings.js` — added Data Management card HTML + `bindDataManagement` function
+- `docs/superpowers/specs/2026-04-27-scan-and-retention-design.md` — design spec (committed)
+- `docs/superpowers/plans/2026-04-27-scan-and-retention.md` — implementation plan (committed)
+
+### Decisions Made
+
+- "Stay pruned" invariant: `PurgeMessages` deletes `tool_calls` then `messages` but leaves `files` table intact — the scanner uses `files` rows as "already processed" markers so purged sessions are not re-imported from disk
+- `PurgeMessages` wraps both DELETEs in a transaction — prevents partial purge if the second DELETE fails mid-operation
+- Auto-purge fires unconditionally after each scan tick regardless of whether `ScanDir` returned an error — purge and scan are independent DB operations; documented with inline comment
+- Default retention is off (blank/0) — no data is ever deleted without explicit user opt-in
+- `strconv.Atoi` instead of `fmt.Sscanf` in `GetRetentionDays` — surfaces corrupt stored values rather than silently returning 0
+- Wails binding stubs (`wailsjs/`) not regenerated — build uses `-skipbindings`; `window.go.app.App.*` direct calls work at runtime without stubs
+
+### Inferred Next Steps
+
+- **Build and live-test** — run `wails build -platform windows/amd64 -skipbindings`, launch `tokentally.exe`, go to Settings and verify the Data Management card renders correctly
+- **Test Scan Now** — click it right after launching (before first auto-scan tick) to verify it picks up new sessions immediately and shows the correct count
+- **Test retention save + purge** — enter 90, save, verify it persists after navigating away and back; then test Purge Now shows a confirm dialog and reports a deleted count
+- **Regenerate Wails bindings** — run `wails build` (without `-skipbindings`) once to update `frontend/wailsjs/go/app/App.js` and `App.d.ts` with the three new methods
+
+### Open Questions / Blockers
+
+- The `-skipbindings` build has not been run since the new Go methods were added — confirm `go build ./...` passes (it does per CI in the subagent runs) and the Wails build succeeds
+- `wails build` (full, with binding generation) has not been tested this session
