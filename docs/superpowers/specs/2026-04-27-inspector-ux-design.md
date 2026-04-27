@@ -130,8 +130,8 @@ async function exportHTML() {
   const html = generateSessionHTML(chunks.value as Chunk[], {
     sessionId: selectedId.value,
     projectName: selectedSession.value?.project_name ?? '',
-    started: sessions.value.find(...)?.started ?? '',
-    ended: '',
+    started: selectedSession.value?.started ?? '',
+    ended: (chunks.value as Chunk[]).at(-1)?.timestamp ?? '',
   })
   const path = await window.go.app.App.SaveHTMLExport(html)
   if (path) exportMsg.value = 'Saved'
