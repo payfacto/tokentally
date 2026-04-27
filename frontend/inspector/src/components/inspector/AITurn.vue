@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { Chunk, ToolCallChunk } from '../../lib/types'
 import { copyMarkdown } from '../../lib/clipboard'
 import ThinkingBlock from './ThinkingBlock.vue'
