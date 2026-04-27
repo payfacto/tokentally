@@ -28,12 +28,13 @@ export default async function (root) {
 }
 
 async function renderAll(root) {
-  const [planResp, models, plans, rates, apiKey] = await Promise.all([
+  const [planResp, models, plans, rates, apiKey, retentionDays] = await Promise.all([
     App.GetPlan(),
     App.GetPricingModels(),
     App.GetPricingPlans(),
     App.GetExchangeRates(),
     App.GetExchangeApiKey(),
+    App.GetRetentionDays(),
   ]);
   plans.sort((a, b) => a.label.localeCompare(b.label));
   const currentPlan = planResp.plan || 'api';
@@ -112,6 +113,35 @@ async function renderAll(root) {
       ${renderPlansTable(plans)}
     </div>
 
+    <div class="card" id="card-data" style="margin-top:16px">
+      <h2>Data Management</h2>
+
+      <h3 style="margin-top:16px">Scanner</h3>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">The scanner runs automatically every 30 seconds. Use this to pick up new sessions immediately.</p>
+      <div class="flex" style="gap:10px;align-items:center">
+        <button id="btn-scan-now">Scan Now</button>
+        <span id="scan-msg" class="muted" style="font-size:12px"></span>
+      </div>
+
+      <hr class="divider" style="margin:20px 0">
+
+      <h3>Retention</h3>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Automatically delete old data from TokenTally's database. Leave blank to keep data forever.</p>
+      <div class="flex" style="gap:10px;align-items:center">
+        <label class="form-label" style="margin:0;white-space:nowrap">Delete data older than</label>
+        <input id="retention-days" type="number" min="1" step="1" class="form-input" style="width:90px"
+          value="${retentionDays > 0 ? retentionDays : ''}" placeholder="e.g. 90">
+        <span style="color:var(--muted);font-size:13px">days</span>
+        <button class="primary" id="btn-save-retention">Save</button>
+        <span id="retention-msg" class="muted" style="font-size:12px"></span>
+      </div>
+      <div style="margin-top:10px">
+        <button id="btn-purge-now" style="background:var(--bad);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer" ${retentionDays <= 0 ? 'disabled' : ''}>Purge Now</button>
+        <span id="purge-msg" class="muted" style="font-size:12px;margin-left:10px"></span>
+      </div>
+      <p class="muted" style="font-size:11px;margin-top:8px">Removes messages from TokenTally's database only. Your <code style="font-size:11px">~/.claude/projects/</code> files are not affected and won't be re-imported.</p>
+    </div>
+
     <div class="card" id="service-card" style="margin-top:16px">
       <h2>Windows Service</h2>
       <p class="muted" style="font-size:13px">The background scanner runs as a Windows service, keeping data up to date even when the dashboard is closed.</p>
@@ -127,6 +157,7 @@ async function renderAll(root) {
   bindModels(root, models);
   bindPlans(root, plans);
   bindService(root);
+  bindDataManagement(root, retentionDays);
 }
 
 function renderModelsTable(models) {
@@ -330,6 +361,66 @@ function bindService(root) {
   root.querySelector('#btn-uninstall')?.addEventListener('click', async () => {
     await App.UninstallService().catch(() => {});
     setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY);
+  });
+}
+
+function bindDataManagement(root, initialRetentionDays) {
+  let currentDays = initialRetentionDays;
+
+  root.querySelector('#btn-scan-now').addEventListener('click', async () => {
+    const msg = root.querySelector('#scan-msg');
+    msg.textContent = 'Scanning…';
+    msg.style.color = 'var(--muted)';
+    try {
+      const result = await App.ScanNow();
+      if (result.Messages > 0 || result.Files > 0) {
+        msg.textContent = `Scanned ${result.Messages} messages in ${result.Files} files`;
+      } else {
+        msg.textContent = 'Nothing new';
+      }
+      msg.style.color = 'var(--good)';
+    } catch (e) {
+      msg.textContent = 'Error: ' + (e.message || String(e));
+      msg.style.color = 'var(--bad)';
+    }
+    setTimeout(() => { msg.textContent = ''; }, 2500);
+  });
+
+  const daysInput  = root.querySelector('#retention-days');
+  const purgeBtn   = root.querySelector('#btn-purge-now');
+
+  daysInput.addEventListener('input', () => {
+    const val = parseInt(daysInput.value, 10);
+    purgeBtn.disabled = !(val > 0);
+  });
+
+  root.querySelector('#btn-save-retention').addEventListener('click', async () => {
+    const msg  = root.querySelector('#retention-msg');
+    const val  = parseInt(daysInput.value, 10) || 0;
+    await App.SetRetentionDays(val);
+    currentDays = val;
+    purgeBtn.disabled = val <= 0;
+    flash(msg, val > 0 ? `Saved — auto-purge every scan (>${val} days)` : 'Saved — retention off');
+  });
+
+  purgeBtn.addEventListener('click', async () => {
+    const val = parseInt(daysInput.value, 10) || 0;
+    if (val <= 0) return;
+    if (!confirm(`Delete all TokenTally data older than ${val} days? This cannot be undone.`)) return;
+    const msg = root.querySelector('#purge-msg');
+    msg.textContent = 'Purging…';
+    msg.style.color = 'var(--muted)';
+    try {
+      const deleted = await App.PurgeOlderThan(val);
+      msg.textContent = deleted > 0
+        ? `Deleted ${deleted.toLocaleString()} messages`
+        : 'Nothing to purge';
+      msg.style.color = deleted > 0 ? 'var(--good)' : 'var(--muted)';
+    } catch (e) {
+      msg.textContent = 'Error: ' + (e.message || String(e));
+      msg.style.color = 'var(--bad)';
+    }
+    setTimeout(() => { msg.textContent = ''; }, 2500);
   });
 }
 
