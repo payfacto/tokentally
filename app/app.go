@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"tokentally/internal/db"
@@ -443,6 +444,25 @@ func (a *App) SetRetentionDays(days int) error {
 // Returns the number of message rows deleted.
 func (a *App) PurgeOlderThan(days int) (int64, error) {
 	return db.PurgeMessages(a.conn, days)
+}
+
+// SaveHTMLExport opens a native Save-As dialog and writes the provided HTML
+// to the chosen path. Returns the saved path, or empty string if the user cancelled.
+func (a *App) SaveHTMLExport(html string) (string, error) {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export session as HTML",
+		DefaultFilename: "session.html",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "HTML files (*.html)", Pattern: "*.html"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(html), 0644); err != nil {
+		return "", fmt.Errorf("SaveHTMLExport: %w", err)
+	}
+	return path, nil
 }
 
 func (a *App) getPlan() string {
