@@ -783,4 +783,13 @@ func TestPurgeMessages_ZeroDaysIsNoop(t *testing.T) {
 	if count != 1 {
 		t.Errorf("message was incorrectly deleted when days=0")
 	}
+
+	// Negative days should also be a no-op.
+	deleted, err = db.PurgeMessages(conn, -1)
+	if err != nil {
+		t.Fatalf("PurgeMessages(-1) failed: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("PurgeMessages(-1) deleted %d rows, want 0 (no-op)", deleted)
+	}
 }

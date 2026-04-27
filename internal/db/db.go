@@ -534,18 +534,30 @@ func PurgeMessages(conn *sql.DB, days int) (int64, error) {
 		return 0, nil
 	}
 	cutoff := fmt.Sprintf("-%d days", days)
-	if _, err := conn.Exec(
+	tx, err := conn.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("PurgeMessages: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(
 		`DELETE FROM tool_calls WHERE timestamp < datetime('now', ?)`, cutoff,
 	); err != nil {
-		return 0, fmt.Errorf("purge tool_calls: %w", err)
+		return 0, fmt.Errorf("PurgeMessages tool_calls: %w", err)
 	}
-	result, err := conn.Exec(
+	result, err := tx.Exec(
 		`DELETE FROM messages WHERE timestamp < datetime('now', ?)`, cutoff,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("purge messages: %w", err)
+		return 0, fmt.Errorf("PurgeMessages messages: %w", err)
 	}
-	return result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("PurgeMessages rows affected: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("PurgeMessages commit: %w", err)
+	}
+	return n, nil
 }
 
 // DismissTip records a dismissed tip key with the current Unix timestamp.
