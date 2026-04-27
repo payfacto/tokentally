@@ -78,6 +78,9 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("GetSessionChunks rows close: %w", err)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetSessionChunks rows: %w", err)
+	}
 
 	chunks := make([]SessionChunk, 0, len(msgs))
 	for _, m := range msgs {
@@ -153,6 +156,7 @@ func queryToolCalls(conn *sql.DB, messageUUID string) []ToolCallChunk {
 		}
 		out = append(out, tc)
 	}
+	_ = rows.Err()
 	return out
 }
 
