@@ -14,7 +14,7 @@ const hashId = props.initialHash.split('/')[2]
 if (hashId) selectedId.value = decodeURIComponent(hashId)
 
 const { data: sessions, refetch: refetchSessions } = useSessionList(range)
-const { data: chunks, isLoading, error } = useSessionChunks(selectedId)
+const { data: chunks, visibleCount, isLoading, error } = useSessionChunks(selectedId)
 
 function pick(session: Session) {
   selectedId.value = session.session_id
@@ -103,7 +103,7 @@ const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n
           <span>○</span> No turns found for this session.
         </div>
         <div v-else class="inspector-scroll">
-          <SessionInspector :chunks="(chunks as Chunk[])" />
+          <SessionInspector :chunks="(chunks.slice(0, visibleCount) as Chunk[])" />
         </div>
       </template>
     </div>
