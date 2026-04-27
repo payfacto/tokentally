@@ -427,10 +427,13 @@ func (a *App) ScanNow() (scanner.ScanResult, error) {
 	return result, err
 }
 
+// GetRetentionDays returns the configured retention period in days.
+// Returns 0 if not set (auto-purge disabled).
 func (a *App) GetRetentionDays() (int, error) {
 	return db.GetRetentionDays(a.conn)
 }
 
+// SetRetentionDays persists the retention period. days=0 disables auto-purge.
 func (a *App) SetRetentionDays(days int) error {
 	return db.SetRetentionDays(a.conn, days)
 }
