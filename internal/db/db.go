@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -501,10 +502,12 @@ func GetRetentionDays(conn *sql.DB) (int, error) {
 		return 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("GetRetentionDays: %w", err)
 	}
-	var days int
-	fmt.Sscanf(v, "%d", &days)
+	days, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("GetRetentionDays: corrupt value %q: %w", v, err)
+	}
 	return days, nil
 }
 
@@ -512,10 +515,13 @@ func GetRetentionDays(conn *sql.DB) (int, error) {
 // days=0 effectively disables auto-purge.
 func SetRetentionDays(conn *sql.DB, days int) error {
 	_, err := conn.Exec(
-		`INSERT INTO plan (k,v) VALUES ('retention_days',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`,
-		fmt.Sprintf("%d", days),
+		`INSERT OR REPLACE INTO plan (k,v) VALUES ('retention_days',?)`,
+		strconv.Itoa(days),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("SetRetentionDays: %w", err)
+	}
+	return nil
 }
 
 // DismissTip records a dismissed tip key with the current Unix timestamp.
