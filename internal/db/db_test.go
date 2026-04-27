@@ -565,3 +565,113 @@ func TestDismissTip(t *testing.T) {
 		t.Fatalf("DismissTip (duplicate) failed: %v", err)
 	}
 }
+
+func TestGetSessionChunks_UserAndAI(t *testing.T) {
+	conn := openMem(t)
+
+	// user message
+	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,prompt_text)
+		VALUES ('u1','sess1','proj','user','2025-01-01T10:00:00Z','hello world')`) //nolint:errcheck
+
+	// assistant message with thinking + tool call
+	conn.Exec(`INSERT INTO messages
+		(uuid,parent_uuid,session_id,project_slug,type,timestamp,model,thinking_text,input_tokens,output_tokens,cache_read_tokens)
+		VALUES ('a1','u1','sess1','proj','assistant','2025-01-01T10:00:01Z','claude-sonnet-4-6','I should run bash',100,50,20)`) //nolint:errcheck
+
+	// tool call row
+	conn.Exec(`INSERT INTO tool_calls
+		(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,duration_ms,is_error,timestamp)
+		VALUES ('a1','sess1','proj','Bash','ls -la','tu1','{"command":"ls -la"}','file.txt',123,0,'2025-01-01T10:00:01Z')`) //nolint:errcheck
+
+	chunks, err := db.GetSessionChunks(conn, "sess1")
+	if err != nil {
+		t.Fatalf("GetSessionChunks: %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+	}
+
+	// user chunk
+	if chunks[0].Type != "user" {
+		t.Errorf("chunk[0].Type: want 'user', got %q", chunks[0].Type)
+	}
+	if chunks[0].Text != "hello world" {
+		t.Errorf("chunk[0].Text: want 'hello world', got %q", chunks[0].Text)
+	}
+
+	// ai chunk
+	if chunks[1].Type != "ai" {
+		t.Errorf("chunk[1].Type: want 'ai', got %q", chunks[1].Type)
+	}
+	if chunks[1].Thinking != "I should run bash" {
+		t.Errorf("chunk[1].Thinking: want 'I should run bash', got %q", chunks[1].Thinking)
+	}
+	if len(chunks[1].ToolCalls) != 1 {
+		t.Fatalf("chunk[1].ToolCalls: want 1, got %d", len(chunks[1].ToolCalls))
+	}
+	tc := chunks[1].ToolCalls[0]
+	if tc.Name != "Bash" {
+		t.Errorf("ToolCall.Name: want 'Bash', got %q", tc.Name)
+	}
+	if tc.Output != "file.txt" {
+		t.Errorf("ToolCall.Output: want 'file.txt', got %q", tc.Output)
+	}
+	if tc.DurationMs != 123 {
+		t.Errorf("ToolCall.DurationMs: want 123, got %d", tc.DurationMs)
+	}
+	if chunks[1].InputTokens != 100 {
+		t.Errorf("InputTokens: want 100, got %d", chunks[1].InputTokens)
+	}
+	if chunks[1].ContextAttrib == nil {
+		t.Fatal("ContextAttrib is nil")
+	}
+}
+
+func TestGetSessionChunks_Compaction(t *testing.T) {
+	conn := openMem(t)
+	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,tokens_before,tokens_after)
+		VALUES ('s1','sess2','proj','summary','2025-01-01T10:00:00Z',500,100)`) //nolint:errcheck
+
+	chunks, err := db.GetSessionChunks(conn, "sess2")
+	if err != nil {
+		t.Fatalf("GetSessionChunks: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].Type != "compact" {
+		t.Errorf("chunk[0].Type: want 'compact', got %q", chunks[0].Type)
+	}
+	if chunks[0].TokensBefore != 500 {
+		t.Errorf("TokensBefore: want 500, got %d", chunks[0].TokensBefore)
+	}
+	if chunks[0].TokensAfter != 100 {
+		t.Errorf("TokensAfter: want 100, got %d", chunks[0].TokensAfter)
+	}
+}
+
+func TestGetSessionChunks_SubagentExtraction(t *testing.T) {
+	conn := openMem(t)
+	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens,output_tokens,cache_read_tokens)
+		VALUES ('a1','sess3','proj','assistant','2025-01-01T10:00:00Z',0,0,0)`) //nolint:errcheck
+	conn.Exec(`INSERT INTO tool_calls
+		(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,is_error,timestamp)
+		VALUES ('a1','sess3','proj','Task','code-reviewer','tu1',
+		  '{"description":"Review code","subagent_type":"code-reviewer"}',
+		  '{"session_id":"sub-abc123"}',0,'2025-01-01T10:00:00Z')`) //nolint:errcheck
+
+	chunks, err := db.GetSessionChunks(conn, "sess3")
+	if err != nil {
+		t.Fatalf("GetSessionChunks: %v", err)
+	}
+	if len(chunks) != 1 || len(chunks[0].ToolCalls) != 1 {
+		t.Fatalf("unexpected chunks/toolcalls: %+v", chunks)
+	}
+	tc := chunks[0].ToolCalls[0]
+	if tc.SubagentID != "sub-abc123" {
+		t.Errorf("SubagentID: want 'sub-abc123', got %q", tc.SubagentID)
+	}
+	if tc.SubagentName != "Review code" {
+		t.Errorf("SubagentName: want 'Review code', got %q", tc.SubagentName)
+	}
+}
