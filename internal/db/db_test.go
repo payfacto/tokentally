@@ -761,6 +761,16 @@ func TestPurgeMessages(t *testing.T) {
 	if count != 0 {
 		t.Errorf("tool_call for old message was not deleted")
 	}
+
+	// files table must be untouched — leaving it intact prevents re-import of purged data.
+	conn.Exec(`INSERT INTO files (path, mtime, bytes_read, scanned_at) VALUES ('test.jsonl', 1.0, 100, 1.0)`) //nolint:errcheck
+	if _, err := db.PurgeMessages(conn, 1); err != nil {
+		t.Fatalf("second PurgeMessages call failed: %v", err)
+	}
+	conn.QueryRow(`SELECT COUNT(*) FROM files`).Scan(&count) //nolint:errcheck
+	if count != 1 {
+		t.Errorf("files table was modified by PurgeMessages — it must remain untouched")
+	}
 }
 
 func TestPurgeMessages_ZeroDaysIsNoop(t *testing.T) {

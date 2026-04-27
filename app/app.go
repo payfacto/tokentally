@@ -129,6 +129,7 @@ func (a *App) scanLoop() {
 		if err == nil && (result.Messages > 0 || result.Files > 0) {
 			runtime.EventsEmit(a.ctx, "scan", result)
 		}
+		// Purge runs regardless of scan outcome — the two operations are independent.
 		if days, _ := db.GetRetentionDays(a.conn); days > 0 {
 			db.PurgeMessages(a.conn, days) //nolint:errcheck
 		}
