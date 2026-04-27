@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useSessionList, useSessionChunks } from './composables/useWails'
 import SessionInspector from './components/inspector/SessionInspector.vue'
 import type { Chunk, Session } from './lib/types'
+import { generateSessionHTML } from './lib/export'
+import type { SessionMeta } from './lib/export'
 
 const props = defineProps<{ initialHash: string }>()
 
@@ -44,6 +46,23 @@ const selectedSession = computed(() =>
 )
 const fmtDate = (ts: string) => ts ? ts.slice(0, 10) : '—'
 const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
+
+const exportMsg = ref('')
+
+async function exportHTML() {
+  const meta: SessionMeta = {
+    sessionId: selectedId.value,
+    projectName: selectedSession.value?.project_name ?? '',
+    started: selectedSession.value?.started ?? '',
+    ended: (chunks.value as Chunk[]).at(-1)?.timestamp ?? '',
+  }
+  const html = generateSessionHTML(chunks.value as Chunk[], meta)
+  const path = await window.go.app.App.SaveHTMLExport(html)
+  if (path) {
+    exportMsg.value = 'Saved'
+    setTimeout(() => { exportMsg.value = '' }, 2000)
+  }
+}
 </script>
 
 <template>
@@ -94,6 +113,11 @@ const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n
           <span class="muted" style="font-size:11px;font-family:var(--mono);margin-left:8px">
             {{ selectedId.slice(0, 8) }}
           </span>
+          <span class="spacer" />
+          <span v-if="exportMsg" class="export-msg muted" style="font-size:11px;font-family:var(--mono)">{{ exportMsg }}</span>
+          <button class="btn-export" title="Export as HTML" @click="exportHTML">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
         </div>
         <div v-if="isLoading" class="skeleton" style="height:80px;margin:16px" />
         <div v-else-if="error" class="empty" style="padding:16px">
@@ -129,4 +153,14 @@ const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.spacer { flex: 1; }
+.btn-export {
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 6px;
+  cursor: pointer; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1; transition: color 120ms, border-color 120ms;
+}
+.btn-export:hover { color: var(--text); border-color: var(--text); }
+.export-msg { margin-right: 8px; }
 </style>
