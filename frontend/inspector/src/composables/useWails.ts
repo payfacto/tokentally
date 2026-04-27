@@ -49,15 +49,24 @@ export function useSessionList(range: Ref<string>) {
 
 export function useSessionChunks(id: Ref<string>) {
   const data = ref<Chunk[]>([])
+  const visibleCount = ref(20)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
+  function revealProgressively(total: number) {
+    if (visibleCount.value >= total) return
+    visibleCount.value = Math.min(visibleCount.value + 20, total)
+    requestAnimationFrame(() => revealProgressively(total))
+  }
+
   async function refetch() {
-    if (!id.value) { data.value = []; return }
+    if (!id.value) { data.value = []; visibleCount.value = 20; return }
     isLoading.value = true
     error.value = null
+    visibleCount.value = 20
     try {
       data.value = (await window.go.app.App.GetSessionChunks(id.value)) ?? []
+      revealProgressively(data.value.length)
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -66,5 +75,5 @@ export function useSessionChunks(id: Ref<string>) {
   }
 
   watch(id, refetch, { immediate: true })
-  return { data, isLoading, error, refetch }
+  return { data, visibleCount, isLoading, error, refetch }
 }
