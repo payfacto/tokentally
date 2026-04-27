@@ -20,8 +20,8 @@ export default async function (root) {
     (totals.cache_create_5m_tokens || 0) +
     (totals.cache_create_1h_tokens || 0);
 
-  const kpi = (label, compactVal, fullVal, cls = '') => `
-    <div class="card kpi ${cls}">
+  const kpi = (label, compactVal, fullVal, cls = '', tooltip = '') => `
+    <div class="card kpi ${cls}"${tooltip ? ` data-tooltip="${tooltip}"` : ''}>
       <div class="label">${label}</div>
       <div class="value" title="${fullVal}">${compactVal}</div>
     </div>`;
@@ -44,12 +44,12 @@ export default async function (root) {
         <img src="/web/mascot.png" alt="" style="width:100%;height:100%;object-fit:contain;display:block">
       </div>
       <div class="kpi-row" style="flex:1">
-        ${kpi('Sessions',     fmt.int(totals.sessions),       fmt.int(totals.sessions))}
-        ${kpi('Turns',        fmt.int(totals.turns),          fmt.int(totals.turns))}
-        ${kpi('Input',        fmt.compact(totals.input_tokens),       fmt.int(totals.input_tokens) + ' tokens')}
-        ${kpi('Output',       fmt.compact(totals.output_tokens),      fmt.int(totals.output_tokens) + ' tokens')}
-        ${kpi('Cache read',   fmt.compact(totals.cache_read_tokens),  fmt.int(totals.cache_read_tokens) + ' tokens')}
-        ${kpi('Cache create', fmt.compact(cacheCreate),               fmt.int(cacheCreate) + ' tokens')}
+        ${kpi('Sessions',     fmt.int(totals.sessions),       fmt.int(totals.sessions),       '', 'One run of Claude Code (from claude to exit). Each session is a single .jsonl file.')}
+        ${kpi('Turns',        fmt.int(totals.turns),          fmt.int(totals.turns),          '', 'One message you sent to Claude. Each turn triggers a response (possibly with tool calls in between).')}
+        ${kpi('Input',        fmt.compact(totals.input_tokens),       fmt.int(totals.input_tokens) + ' tokens',       '', 'The new text you (and tool results) sent to Claude this turn. Billed at the full input rate.')}
+        ${kpi('Output',       fmt.compact(totals.output_tokens),      fmt.int(totals.output_tokens) + ' tokens',      '', 'The text Claude wrote back. Billed at the highest rate — usually the biggest cost driver per turn.')}
+        ${kpi('Cache read',   fmt.compact(totals.cache_read_tokens),  fmt.int(totals.cache_read_tokens) + ' tokens',  '', 'Tokens Claude re-used from a cache (your CLAUDE.md, previously-read files, the conversation so far). ~10× cheaper than fresh input. High counts = good cost hygiene.')}
+        ${kpi('Cache create', fmt.compact(cacheCreate),               fmt.int(cacheCreate) + ' tokens',               '', 'Writing something into the cache for the first time. One-time cost; pays off on the next turn.')}
         ${costKpi(totals.cost_usd)}
       </div>
     </div>
@@ -160,14 +160,15 @@ export default async function (root) {
 
 function costKpi(tokenCostUsd) {
   const p = state.pricing?.plans?.[state.plan];
+  const tooltip = 'Estimated spend based on token counts and current API pricing. Subscription plan cost shown as a flat monthly fee with token-equivalent below.';
   if (p?.monthly > 0) {
-    return `<div class="card kpi cost">
+    return `<div class="card kpi cost" data-tooltip="${tooltip}">
       <div class="label">Est. cost</div>
       <div class="value" title="${fmt.htmlSafe(p.label)}">${fmt.money(p.monthly)}<span style="font-size:11px;opacity:0.6">/mo</span></div>
       <div class="sub">${fmt.money(tokenCostUsd)} token equiv</div>
     </div>`;
   }
-  return `<div class="card kpi cost">
+  return `<div class="card kpi cost" data-tooltip="${tooltip}">
     <div class="label">Est. cost</div>
     <div class="value" title="${fmt.money(tokenCostUsd)}">${fmt.money(tokenCostUsd)}</div>
   </div>`;
