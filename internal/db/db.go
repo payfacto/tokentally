@@ -110,7 +110,32 @@ func Open(path string) (*sql.DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("db.Open schema: %w", err)
 	}
+	for _, m := range []struct{ table, column, def string }{
+		{"messages", "thinking_text", "TEXT"},
+		{"messages", "tokens_before", "INTEGER"},
+		{"messages", "tokens_after", "INTEGER"},
+		{"tool_calls", "tool_use_id", "TEXT"},
+		{"tool_calls", "input_json", "TEXT"},
+		{"tool_calls", "output_text", "TEXT"},
+		{"tool_calls", "duration_ms", "INTEGER"},
+	} {
+		if err := addColumnIfMissing(conn, m.table, m.column, m.def); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
 	return conn, nil
+}
+
+// addColumnIfMissing runs ALTER TABLE ADD COLUMN and ignores duplicate-column errors,
+// making it safe to call on every startup regardless of whether the column exists.
+func addColumnIfMissing(conn *sql.DB, table, column, def string) error {
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, def)
+	_, err := conn.Exec(stmt)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("addColumnIfMissing %s.%s: %w", table, column, err)
+	}
+	return nil
 }
 
 // RangeClause builds a WHERE fragment for since/until date filters.

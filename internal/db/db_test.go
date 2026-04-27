@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -35,6 +36,42 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	for _, tbl := range []string{"files", "messages", "tool_calls", "plan", "dismissed_tips"} {
 		if !tableExists(t, conn, tbl) {
 			t.Errorf("expected table %q to exist after Open", tbl)
+		}
+	}
+}
+
+func TestOpen_InspectorColumns(t *testing.T) {
+	conn := openMem(t)
+	columnExists := func(table, col string) bool {
+		rows, err := conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+		if err != nil {
+			t.Fatalf("pragma table_info(%s): %v", table, err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid, notnull, pk int
+			var name, typ string
+			var dflt any
+			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if name == col {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []struct{ table, col string }{
+		{"messages", "thinking_text"},
+		{"messages", "tokens_before"},
+		{"messages", "tokens_after"},
+		{"tool_calls", "tool_use_id"},
+		{"tool_calls", "input_json"},
+		{"tool_calls", "output_text"},
+		{"tool_calls", "duration_ms"},
+	} {
+		if !columnExists(want.table, want.col) {
+			t.Errorf("column %s.%s not found after Open", want.table, want.col)
 		}
 	}
 }
