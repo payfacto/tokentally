@@ -74,11 +74,14 @@ Edit `pricing.json` in the same directory as `tokentally.exe` and reload the das
 
 ## Building from source
 
-Prerequisites: [Go 1.22+](https://go.dev/dl/), [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation).
+Prerequisites: [Go 1.22+](https://go.dev/dl/), [Node.js 18+](https://nodejs.org/), [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
 git clone <repo-url>
 cd tokentally
+
+# Install Vue inspector dependencies (first time, or after npm changes)
+npm install --prefix frontend/inspector
 
 # Run tests (any platform)
 go test ./...
