@@ -524,6 +524,30 @@ func SetRetentionDays(conn *sql.DB, days int) error {
 	return nil
 }
 
+// PurgeMessages deletes tool_calls and messages whose timestamp is older than
+// the given number of days. Returns the number of message rows deleted.
+// The files table is left intact so the scanner skips already-processed paths
+// and does not re-import the pruned data.
+// days=0 is a no-op.
+func PurgeMessages(conn *sql.DB, days int) (int64, error) {
+	if days <= 0 {
+		return 0, nil
+	}
+	cutoff := fmt.Sprintf("-%d days", days)
+	if _, err := conn.Exec(
+		`DELETE FROM tool_calls WHERE timestamp < datetime('now', ?)`, cutoff,
+	); err != nil {
+		return 0, fmt.Errorf("purge tool_calls: %w", err)
+	}
+	result, err := conn.Exec(
+		`DELETE FROM messages WHERE timestamp < datetime('now', ?)`, cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("purge messages: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 // DismissTip records a dismissed tip key with the current Unix timestamp.
 func DismissTip(conn *sql.DB, key string) error {
 	_, err := conn.Exec(
