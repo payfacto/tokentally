@@ -129,6 +129,9 @@ func (a *App) scanLoop() {
 		if err == nil && (result.Messages > 0 || result.Files > 0) {
 			runtime.EventsEmit(a.ctx, "scan", result)
 		}
+		if days, _ := db.GetRetentionDays(a.conn); days > 0 {
+			db.PurgeMessages(a.conn, days) //nolint:errcheck
+		}
 		time.Sleep(interval)
 	}
 }
@@ -422,6 +425,20 @@ func (a *App) ScanNow() (scanner.ScanResult, error) {
 		runtime.EventsEmit(a.ctx, "scan", result)
 	}
 	return result, err
+}
+
+func (a *App) GetRetentionDays() (int, error) {
+	return db.GetRetentionDays(a.conn)
+}
+
+func (a *App) SetRetentionDays(days int) error {
+	return db.SetRetentionDays(a.conn, days)
+}
+
+// PurgeOlderThan deletes messages older than the given number of days.
+// Returns the number of message rows deleted.
+func (a *App) PurgeOlderThan(days int) (int64, error) {
+	return db.PurgeMessages(a.conn, days)
 }
 
 func (a *App) getPlan() string {
