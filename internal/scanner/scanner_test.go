@@ -163,12 +163,16 @@ func TestScanDir_StoresThinkingAndToolInput(t *testing.T) {
 func TestScanDir_PairsToolResults(t *testing.T) {
 	conn := openMem(t)
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "proj-c"), 0755) //nolint:errcheck
+	if err := os.MkdirAll(filepath.Join(dir, "proj-c"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	content := `{"uuid":"p1","sessionId":"sess-pair","type":"user","timestamp":"2025-01-03T10:00:00.000Z","message":{"content":[{"type":"text","text":"run it"}]}}
 {"uuid":"p2","parentUuid":"p1","sessionId":"sess-pair","type":"assistant","timestamp":"2025-01-03T10:00:01.000Z","message":{"id":"mid3","model":"claude-sonnet-4-6","content":[{"type":"tool_use","name":"Bash","id":"tu-xyz","input":{"command":"echo hi"}}],"usage":{"input_tokens":50,"output_tokens":10}}}
 {"uuid":"p3","parentUuid":"p2","sessionId":"sess-pair","type":"user","timestamp":"2025-01-03T10:00:03.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tu-xyz","content":"hi\n"}]}}
 `
-	os.WriteFile(filepath.Join(dir, "proj-c", "session-pair.jsonl"), []byte(content), 0644) //nolint:errcheck
+	if err := os.WriteFile(filepath.Join(dir, "proj-c", "session-pair.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := scanner.ScanDir(conn, dir); err != nil {
 		t.Fatalf("ScanDir: %v", err)
 	}
@@ -192,11 +196,15 @@ func TestScanDir_PairsToolResults(t *testing.T) {
 func TestScanDir_StoresCompaction(t *testing.T) {
 	conn := openMem(t)
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "proj-d"), 0755) //nolint:errcheck
+	if err := os.MkdirAll(filepath.Join(dir, "proj-d"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	content := `{"uuid":"q1","sessionId":"sess-compact","type":"user","timestamp":"2025-01-04T10:00:00.000Z","message":{"content":[{"type":"text","text":"hello"}]}}
 {"uuid":"q2","sessionId":"sess-compact","type":"system","timestamp":"2025-01-04T10:00:01.000Z","message":{"content":"<compacted_context previous_tokens=\"500\" new_tokens=\"100\">...</compacted_context>"}}
 `
-	os.WriteFile(filepath.Join(dir, "proj-d", "session-compact.jsonl"), []byte(content), 0644) //nolint:errcheck
+	if err := os.WriteFile(filepath.Join(dir, "proj-d", "session-compact.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := scanner.ScanDir(conn, dir); err != nil {
 		t.Fatalf("ScanDir: %v", err)
 	}
