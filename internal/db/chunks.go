@@ -105,11 +105,14 @@ func buildChunk(conn *sql.DB, uuid, msgType, ts, promptText, thinkingText string
 			ContextAttrib: &attrib,
 		}
 
-	case "summary", "system":
+	case "summary":
 		if tokensBefore != nil && tokensAfter != nil {
 			return SessionChunk{Type: "compact", Timestamp: ts,
 				TokensBefore: *tokensBefore, TokensAfter: *tokensAfter}
 		}
+		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
+
+	case "system":
 		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
 
 	default:
