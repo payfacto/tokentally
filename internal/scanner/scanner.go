@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -119,6 +120,7 @@ type toolCall struct {
 	timestamp    string
 	toolUseID    string // "id" field from tool_use blocks
 	inputJSON    string // raw JSON from the tool_use "input" field
+	outputText   string // captured from matching tool_result block
 }
 
 // fileState holds the persisted scan position for one JSONL file.
@@ -275,6 +277,9 @@ func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
 		}
 	}
 
+	// Pair tool results back to their originating tool_use rows (best-effort).
+	pairToolResults(conn, rec.SessionID, rec.Timestamp, tlist)
+
 	return 1, len(tlist), nil
 }
 
@@ -331,6 +336,20 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 	allTools = append(allTools, toolUses...)
 	allTools = append(allTools, toolResults...)
 
+	// Extract compaction data for system records.
+	var tokensBefore, tokensAfter *int
+	if rec.Type == "system" {
+		text := extractSystemText(msgObj.Content)
+		if strings.Contains(text, "<compacted_context") {
+			b, errB := strconv.Atoi(extractAttr(text, "previous_tokens"))
+			a, errA := strconv.Atoi(extractAttr(text, "new_tokens"))
+			if errB == nil && errA == nil && b > 0 && a > 0 {
+				tokensBefore = &b
+				tokensAfter = &a
+			}
+		}
+	}
+
 	// Extract thinking text for assistant records.
 	var thinkingText *string
 	if rec.Type == "assistant" {
@@ -377,6 +396,8 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 		promptChars:         promptChars,
 		toolCallsJSON:       buildToolCallsJSON(toolUses),
 		thinkingText:        thinkingText,
+		tokensBefore:        tokensBefore,
+		tokensAfter:         tokensAfter,
 	}
 
 	return row, allTools, nil
@@ -473,9 +494,33 @@ func extractResults(timestamp string, content []contentBlock) []toolCall {
 			resultTokens: &tokens,
 			isError:      isError,
 			timestamp:    timestamp,
+			outputText:   resultText(b.Content),
 		})
 	}
 	return out
+}
+
+// resultText extracts the plain text body of a tool_result content field,
+// which may be a JSON string or an array of text blocks.
+func resultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []contentBlock
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "")
+	}
+	return ""
 }
 
 // resultChars counts the character length of a tool_result body.
@@ -498,6 +543,60 @@ func resultChars(raw json.RawMessage) int {
 		return total
 	}
 	return 0
+}
+
+// extractSystemText returns plain text from a system message's content field,
+// handling both plain-string and array-of-text-blocks formats.
+func extractSystemText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []contentBlock
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "")
+	}
+	return ""
+}
+
+// extractAttr finds name="value" in s and returns value.
+func extractAttr(s, name string) string {
+	_, after, found := strings.Cut(s, name+`="`)
+	if !found {
+		return ""
+	}
+	val, _, _ := strings.Cut(after, `"`)
+	return val
+}
+
+// pairToolResults updates tool_calls rows (tool_use entries) with the output text,
+// error flag, and duration from the matching tool_result block in a user message.
+// Errors are best-effort and do not abort the scan.
+func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []toolCall) {
+	for _, r := range results {
+		if r.toolName != "_tool_result" {
+			continue
+		}
+		conn.Exec( //nolint:errcheck
+			`UPDATE tool_calls
+			SET output_text = ?,
+			    is_error = ?,
+			    duration_ms = CAST(
+			        (julianday(?) - julianday(timestamp)) * 86400000
+			    AS INTEGER)
+			WHERE tool_use_id = ? AND session_id = ? AND tool_name != '_tool_result'`,
+			r.outputText, r.isError, userTimestamp, r.target, sessionID,
+		)
+	}
 }
 
 // extractTarget resolves the "target" field from a tool's input object.

@@ -160,6 +160,62 @@ func TestScanDir_StoresThinkingAndToolInput(t *testing.T) {
 	}
 }
 
+func TestScanDir_PairsToolResults(t *testing.T) {
+	conn := openMem(t)
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "proj-c"), 0755) //nolint:errcheck
+	content := `{"uuid":"p1","sessionId":"sess-pair","type":"user","timestamp":"2025-01-03T10:00:00.000Z","message":{"content":[{"type":"text","text":"run it"}]}}
+{"uuid":"p2","parentUuid":"p1","sessionId":"sess-pair","type":"assistant","timestamp":"2025-01-03T10:00:01.000Z","message":{"id":"mid3","model":"claude-sonnet-4-6","content":[{"type":"tool_use","name":"Bash","id":"tu-xyz","input":{"command":"echo hi"}}],"usage":{"input_tokens":50,"output_tokens":10}}}
+{"uuid":"p3","parentUuid":"p2","sessionId":"sess-pair","type":"user","timestamp":"2025-01-03T10:00:03.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tu-xyz","content":"hi\n"}]}}
+`
+	os.WriteFile(filepath.Join(dir, "proj-c", "session-pair.jsonl"), []byte(content), 0644) //nolint:errcheck
+	if _, err := scanner.ScanDir(conn, dir); err != nil {
+		t.Fatalf("ScanDir: %v", err)
+	}
+
+	var outputText string
+	var durationMs int
+	err := conn.QueryRow(
+		`SELECT COALESCE(output_text,''), COALESCE(duration_ms,0) FROM tool_calls WHERE tool_use_id='tu-xyz'`,
+	).Scan(&outputText, &durationMs)
+	if err != nil {
+		t.Fatalf("query output_text: %v", err)
+	}
+	if outputText != "hi\n" {
+		t.Errorf("output_text: want 'hi\\n', got %q", outputText)
+	}
+	if durationMs <= 0 {
+		t.Errorf("duration_ms should be > 0, got %d", durationMs)
+	}
+}
+
+func TestScanDir_StoresCompaction(t *testing.T) {
+	conn := openMem(t)
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "proj-d"), 0755) //nolint:errcheck
+	content := `{"uuid":"q1","sessionId":"sess-compact","type":"user","timestamp":"2025-01-04T10:00:00.000Z","message":{"content":[{"type":"text","text":"hello"}]}}
+{"uuid":"q2","sessionId":"sess-compact","type":"system","timestamp":"2025-01-04T10:00:01.000Z","message":{"content":"<compacted_context previous_tokens=\"500\" new_tokens=\"100\">...</compacted_context>"}}
+`
+	os.WriteFile(filepath.Join(dir, "proj-d", "session-compact.jsonl"), []byte(content), 0644) //nolint:errcheck
+	if _, err := scanner.ScanDir(conn, dir); err != nil {
+		t.Fatalf("ScanDir: %v", err)
+	}
+
+	var before, after int
+	err := conn.QueryRow(
+		`SELECT COALESCE(tokens_before,0), COALESCE(tokens_after,0) FROM messages WHERE uuid='q2'`,
+	).Scan(&before, &after)
+	if err != nil {
+		t.Fatalf("query compaction: %v", err)
+	}
+	if before != 500 {
+		t.Errorf("tokens_before: want 500, got %d", before)
+	}
+	if after != 100 {
+		t.Errorf("tokens_after: want 100, got %d", after)
+	}
+}
+
 func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 	dir := t.TempDir()
 	projDir := filepath.Join(dir, "proj-dedup")
