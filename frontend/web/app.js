@@ -63,6 +63,24 @@ export function withSince(url, since) {
 
 const App = window.go.app.App;
 
+let prevPath = null;
+let inspectorReady = false;
+
+async function ensureInspector() {
+  if (inspectorReady) return;
+  await new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = '/web/inspector/index.js';
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = '/web/inspector/index.css';
+  document.head.appendChild(link);
+  inspectorReady = true;
+}
+
 const apiMap = {
   '/api/overview': (qs) => App.GetOverview(qs.since||'', qs.until||''),
   '/api/prompts':  (qs) => App.GetPrompts(parseInt(qs.limit || '50', 10), qs.sort||'tokens'),
@@ -132,7 +150,23 @@ async function render() {
   const path = hash.split('?')[0];
   let key = path;
   if (path.startsWith('/sessions/')) key = '/sessions';
+
+  // Unmount Vue inspector when navigating away from sessions.
+  if (prevPath?.startsWith('/sessions') && !path.startsWith('/sessions')) {
+    window.SessionInspector?.unmount();
+  }
+  prevPath = path;
+
   setActiveTab(key);
+
+  // Sessions routes handled by Vue inspector.
+  if (path.startsWith('/sessions')) {
+    await ensureInspector();
+    $('#app').innerHTML = '';
+    window.SessionInspector.mount($('#app'), location.hash);
+    return;
+  }
+
   const loader = ROUTES[key] || ROUTES['/overview'];
   const mod = await loader();
   $('#app').innerHTML = '';
