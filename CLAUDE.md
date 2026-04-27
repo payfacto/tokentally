@@ -9,6 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+# Install Vue inspector dependencies (first time, or after npm changes)
+npm install --prefix frontend/inspector
+
 # Run all tests (any platform)
 go test ./...
 
