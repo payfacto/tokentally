@@ -1,0 +1,8 @@
+{
+  "name": "linux-support",
+  "description": "Add Linux support to TokenTally",
+  "specType": "feature",
+  "requirementsFile": "requirements.md",
+  "designFile": "design.md",
+  "tasksFile": "tasks.md"
+}

@@ -9,6 +9,8 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
+const ServiceName = "tokentally"
+
 func installSCM(exePath string) error {
 	m, err := mgr.Connect()
 	if err != nil {
