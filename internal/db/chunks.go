@@ -132,7 +132,7 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 		var msgUUID, id, name, inputJSON, outputText string
 		var isErrInt, durMs int
 		if err := rows.Scan(&msgUUID, &id, &name, &inputJSON, &outputText, &isErrInt, &durMs); err != nil {
-			continue
+			return nil, fmt.Errorf("batchQueryToolCalls scan: %w", err)
 		}
 		tc := ToolCallChunk{
 			ID:         id,
