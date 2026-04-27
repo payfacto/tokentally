@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -62,7 +63,11 @@ func (a *App) Startup(ctx context.Context) {
 		a.seedFromDefaults()
 	}
 	a.reloadPricing()
-	go a.scanLoop()
+	if needsInspectorBackfill(a.conn) {
+		go a.runInspectorBackfill()
+	} else {
+		go a.scanLoop()
+	}
 }
 
 // seedFromDefaults populates pricing_models, pricing_plans, and exchange_rates from defaults.
@@ -126,6 +131,22 @@ func (a *App) scanLoop() {
 		}
 		time.Sleep(interval)
 	}
+}
+
+// needsInspectorBackfill returns true if the one-time inspector backfill has not yet run.
+func needsInspectorBackfill(conn *sql.DB) bool {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k='inspector_backfill_done'`).Scan(&v)
+	return errors.Is(err, sql.ErrNoRows)
+}
+
+// runInspectorBackfill clears the file-scan cache to force a full rescan that
+// populates the new inspector columns, then starts the normal scan loop.
+func (a *App) runInspectorBackfill() {
+	a.conn.Exec(`DELETE FROM files`)                                                                        //nolint:errcheck
+	scanner.ScanDir(a.conn, a.projectsDir)                                                                 //nolint:errcheck
+	a.conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('inspector_backfill_done','1')`) //nolint:errcheck
+	a.scanLoop()
 }
 
 type overviewResult struct {
@@ -197,6 +218,14 @@ func (a *App) GetSessions(limit int, since, until string) ([]map[string]any, err
 
 func (a *App) GetSessionTurns(sessionID string) ([]map[string]any, error) {
 	return db.SessionTurns(a.conn, sessionID)
+}
+
+// GetSessionChunks returns a session as structured chunks for the Vue inspector.
+func (a *App) GetSessionChunks(sessionID string) ([]db.SessionChunk, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID required")
+	}
+	return db.GetSessionChunks(a.conn, sessionID)
 }
 
 func (a *App) GetTools(since, until string) ([]map[string]any, error) {
