@@ -88,7 +88,10 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 			assistantUUIDs = append(assistantUUIDs, m.uuid)
 		}
 	}
-	toolCallMap := batchQueryToolCalls(conn, assistantUUIDs)
+	toolCallMap, err := batchQueryToolCalls(conn, assistantUUIDs)
+	if err != nil {
+		return nil, fmt.Errorf("GetSessionChunks batch tools: %w", err)
+	}
 
 	chunks := make([]SessionChunk, 0, len(msgs))
 	for _, m := range msgs {
@@ -102,9 +105,9 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 
 // batchQueryToolCalls fetches all tool calls for the given message UUIDs in one
 // query and returns them grouped by message_uuid.
-func batchQueryToolCalls(conn *sql.DB, uuids []string) map[string][]ToolCallChunk {
+func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChunk, error) {
 	if len(uuids) == 0 {
-		return map[string][]ToolCallChunk{}
+		return map[string][]ToolCallChunk{}, nil
 	}
 	placeholders := strings.Repeat("?,", len(uuids))
 	placeholders = placeholders[:len(placeholders)-1]
@@ -120,7 +123,7 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) map[string][]ToolCallChun
 		WHERE message_uuid IN (`+placeholders+`) AND tool_name != '_tool_result'
 		ORDER BY rowid ASC`, args...)
 	if err != nil {
-		return map[string][]ToolCallChunk{}
+		return nil, fmt.Errorf("batchQueryToolCalls: %w", err)
 	}
 	defer rows.Close()
 
@@ -144,8 +147,10 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) map[string][]ToolCallChun
 		}
 		result[msgUUID] = append(result[msgUUID], tc)
 	}
-	_ = rows.Err()
-	return result
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("batchQueryToolCalls rows: %w", err)
+	}
+	return result, nil
 }
 
 func buildChunk(msgType, ts, promptText, thinkingText string,

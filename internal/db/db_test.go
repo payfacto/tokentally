@@ -835,5 +835,8 @@ func TestGetSessionChunks_MultipleTurnsWithTools(t *testing.T) {
 		if c.ToolCalls[0].Name != "Bash" {
 			t.Errorf("chunk %d tool name: want Bash, got %q", i, c.ToolCalls[0].Name)
 		}
+		if c.ToolCalls[0].ID != fmt.Sprintf("tu%d", i) {
+			t.Errorf("chunk %d tool ID: want tu%d, got %q", i, i, c.ToolCalls[0].ID)
+		}
 	}
 }
