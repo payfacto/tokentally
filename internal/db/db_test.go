@@ -675,3 +675,38 @@ func TestGetSessionChunks_SubagentExtraction(t *testing.T) {
 		t.Errorf("SubagentName: want 'Review code', got %q", tc.SubagentName)
 	}
 }
+
+func TestGetSetRetentionDays(t *testing.T) {
+	conn := openMem(t)
+
+	// Default when key is absent should be 0 (off).
+	days, err := db.GetRetentionDays(conn)
+	if err != nil {
+		t.Fatalf("GetRetentionDays (default) failed: %v", err)
+	}
+	if days != 0 {
+		t.Errorf("default retention = %d, want 0", days)
+	}
+
+	// Set to 90.
+	if err := db.SetRetentionDays(conn, 90); err != nil {
+		t.Fatalf("SetRetentionDays(90) failed: %v", err)
+	}
+
+	days, err = db.GetRetentionDays(conn)
+	if err != nil {
+		t.Fatalf("GetRetentionDays after set failed: %v", err)
+	}
+	if days != 90 {
+		t.Errorf("retention after set = %d, want 90", days)
+	}
+
+	// Overwrite with 30 (idempotent upsert).
+	if err := db.SetRetentionDays(conn, 30); err != nil {
+		t.Fatalf("SetRetentionDays(30) failed: %v", err)
+	}
+	days, _ = db.GetRetentionDays(conn)
+	if days != 30 {
+		t.Errorf("retention after overwrite = %d, want 30", days)
+	}
+}
