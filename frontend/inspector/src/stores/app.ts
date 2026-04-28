@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { Pricing } from '../composables/useWails'
+import type { Pricing, PlanResponse } from '../composables/useWails'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -11,11 +11,11 @@ export const useAppStore = defineStore('app', {
   }),
   actions: {
     async boot() {
-      const resp = await window.go.app.App.GetPlan() as { plan: string; pricing: Pricing; currency: string; exchange_rate: number }
+      const resp = await window.go.app.App.GetPlan() as PlanResponse
       this.plan = resp.plan
       this.pricing = resp.pricing
       this.currency = resp.currency || 'CAD'
-      this.exchangeRate = resp.exchange_rate || 1.0
+      this.exchangeRate = resp.exchange_rate ?? 1.0
     },
   },
 })
