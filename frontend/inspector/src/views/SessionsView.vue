@@ -50,7 +50,10 @@ async function exportHTML() {
     ended: chunks.value.at(-1)?.timestamp ?? '',
   }
   const html = generateSessionHTML(chunks.value, meta)
-  const path = await window.go.app.App.SaveHTMLExport(html)
+  const dateStr = fmtDate(selectedSession.value?.started ?? '')
+  const idPrefix = selectedId.value.slice(0, 8)
+  const filename = `session-${idPrefix}-${dateStr}.html`
+  const path = await window.go.app.App.SaveHTMLExport(html, filename)
   if (path) {
     clearTimeout(exportTimer)
     exportMsg.value = 'Saved'
@@ -106,6 +109,9 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
           </span>
           <span class="muted" style="font-size:11px;font-family:var(--mono);margin-left:8px">
             {{ selectedId.slice(0, 8) }}
+          </span>
+          <span v-if="selectedSession" class="muted" style="font-size:11px;font-family:var(--mono);margin-left:12px">
+            {{ fmtTok(selectedSession.tokens) }} tokens · {{ fmtDate(selectedSession.started) }}
           </span>
           <span class="spacer" />
           <span v-if="exportMsg" class="export-msg muted" style="font-size:11px;font-family:var(--mono)">{{ exportMsg }}</span>
