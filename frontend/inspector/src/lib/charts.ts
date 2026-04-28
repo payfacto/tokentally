@@ -1,10 +1,13 @@
 declare const echarts: {
   init(el: HTMLElement, theme: null, opts: { renderer: string }): EChartsInstance
+  dispose(el: HTMLElement): void
+  getInstanceByDom(el: HTMLElement): EChartsInstance | undefined
 }
 
-interface EChartsInstance {
+export interface EChartsInstance {
   setOption(option: unknown): void
   resize(): void
+  dispose(): void
 }
 
 const PALETTE = ['#eb733b', '#b04e20', '#2d8a5e', '#b07800', '#c03030', '#4ab0c0', '#9050b0']
@@ -72,7 +75,7 @@ export interface DonutDataItem {
   value: number
 }
 
-export function barChart(el: HTMLElement, opts: BarChartOptions): void {
+export function barChart(el: HTMLElement, opts: BarChartOptions): EChartsInstance {
   const c = mount(el)
   c.setOption({
     ...BASE,
@@ -88,9 +91,10 @@ export function barChart(el: HTMLElement, opts: BarChartOptions): void {
       barMaxWidth: 32,
     }],
   })
+  return c
 }
 
-export function stackedBarChart(el: HTMLElement, opts: StackedBarOptions): void {
+export function stackedBarChart(el: HTMLElement, opts: StackedBarOptions): EChartsInstance {
   const c = mount(el)
   c.setOption({
     ...BASE,
@@ -121,9 +125,10 @@ export function stackedBarChart(el: HTMLElement, opts: StackedBarOptions): void 
       barMaxWidth: 24, emphasis: { focus: 'series' },
     })),
   })
+  return c
 }
 
-export function groupedBarChart(el: HTMLElement, opts: GroupedBarOptions): void {
+export function groupedBarChart(el: HTMLElement, opts: GroupedBarOptions): EChartsInstance {
   const c = mount(el)
   c.setOption({
     ...BASE,
@@ -144,9 +149,10 @@ export function groupedBarChart(el: HTMLElement, opts: GroupedBarOptions): void 
       barMaxWidth: 24, emphasis: { focus: 'series' },
     })),
   })
+  return c
 }
 
-export function donutChart(el: HTMLElement, data: DonutDataItem[]): void {
+export function donutChart(el: HTMLElement, data: DonutDataItem[]): EChartsInstance {
   const c = mount(el)
   c.setOption({
     color: PALETTE,
@@ -173,4 +179,5 @@ export function donutChart(el: HTMLElement, data: DonutDataItem[]): void {
       data,
     }],
   })
+  return c
 }
