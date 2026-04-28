@@ -130,7 +130,28 @@ func Open(path string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
+	if err := applyOneTimeFixUserContent(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
 	return conn, nil
+}
+
+// applyOneTimeFixUserContent resets all file-scan states the first time it
+// runs so the scanner re-processes files that stored NULL prompt_text for
+// user messages whose content was a plain string (not a content-block array).
+// The fix flag is stored in the plan table so this runs exactly once.
+func applyOneTimeFixUserContent(conn *sql.DB) error {
+	var v string
+	_ = conn.QueryRow(`SELECT v FROM plan WHERE k='fix_user_string_content'`).Scan(&v)
+	if v == "1" {
+		return nil
+	}
+	if _, err := conn.Exec(`DELETE FROM files`); err != nil {
+		return fmt.Errorf("fix_user_string_content reset files: %w", err)
+	}
+	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('fix_user_string_content','1')`)
+	return err
 }
 
 // addColumnIfMissing runs ALTER TABLE ADD COLUMN and ignores duplicate-column errors,

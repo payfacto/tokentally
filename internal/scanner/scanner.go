@@ -339,7 +339,13 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 
 	var content []contentBlock
 	if len(msgObj.Content) > 0 {
-		_ = json.Unmarshal(msgObj.Content, &content)
+		if err := json.Unmarshal(msgObj.Content, &content); err != nil {
+			// content may be a plain string rather than an array of blocks
+			var s string
+			if json.Unmarshal(msgObj.Content, &s) == nil && s != "" {
+				content = []contentBlock{{Type: "text", Text: s}}
+			}
+		}
 	}
 
 	promptText, promptChars := extractPromptText(rec.Type, content)

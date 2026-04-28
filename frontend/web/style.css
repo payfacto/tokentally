@@ -142,10 +142,11 @@ main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
   left: 50%;
   transform: translateX(-50%);
   width: 220px;
-  padding: 8px 10px;
-  background: var(--text);
-  color: var(--bg);
-  font-size: 11px;
+  padding: 8px 12px;
+  background: #f8efe5;
+  border: 1px solid #cbb89e;
+  color: #1c1008;
+  font-size: 12px;
   line-height: 1.5;
   border-radius: 6px;
   pointer-events: none;
@@ -153,10 +154,11 @@ main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
   transition: opacity 120ms ease;
   white-space: normal;
   z-index: 100;
-  font-family: var(--sans);
+  font-family: 'Figtree', system-ui, sans-serif;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .kpi[data-tooltip]:hover::after { opacity: 1; }
 

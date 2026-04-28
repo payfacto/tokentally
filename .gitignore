@@ -55,7 +55,10 @@ desktop.ini
 HANDOFF.md
 
 # Claude Code tooling
+.claude/
 .superpowers/
 .impeccable.md
 HANDOFF.md
+skills-lock.json
+
 

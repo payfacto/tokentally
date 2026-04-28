@@ -118,6 +118,7 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 	rows, err := conn.Query(`
 		SELECT message_uuid, COALESCE(tool_use_id,''), tool_name,
 		       COALESCE(input_json,'{}'), COALESCE(output_text,''),
+		       COALESCE(target,''),
 		       is_error, COALESCE(duration_ms,0)
 		FROM tool_calls
 		WHERE message_uuid IN (`+placeholders+`) AND tool_name != '_tool_result'
@@ -129,10 +130,14 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 
 	result := make(map[string][]ToolCallChunk)
 	for rows.Next() {
-		var msgUUID, id, name, inputJSON, outputText string
+		var msgUUID, id, name, inputJSON, outputText, target string
 		var isErrInt, durMs int
-		if err := rows.Scan(&msgUUID, &id, &name, &inputJSON, &outputText, &isErrInt, &durMs); err != nil {
+		if err := rows.Scan(&msgUUID, &id, &name, &inputJSON, &outputText, &target, &isErrInt, &durMs); err != nil {
 			return nil, fmt.Errorf("batchQueryToolCalls scan: %w", err)
+		}
+		// Pre-migration rows have input_json = NULL → synthesize from target.
+		if inputJSON == "{}" && target != "" {
+			inputJSON = synthesizeInput(name, target)
 		}
 		tc := ToolCallChunk{
 			ID:         id,
@@ -186,6 +191,35 @@ func buildChunk(msgType, ts, promptText, thinkingText string,
 	default:
 		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
 	}
+}
+
+// legacyInputFields maps tool names to the field that extractTarget stored in
+// the target column. Used to reconstruct input_json for pre-migration rows.
+var legacyInputFields = map[string]string{
+	"Read":      "file_path",
+	"Edit":      "file_path",
+	"Write":     "file_path",
+	"Glob":      "pattern",
+	"Grep":      "pattern",
+	"Bash":      "command",
+	"WebFetch":  "url",
+	"WebSearch": "query",
+	"Task":      "subagent_type",
+	"Skill":     "skill",
+}
+
+// synthesizeInput builds a minimal JSON input object from the target string
+// when input_json was not stored (pre-migration row).
+func synthesizeInput(toolName, target string) string {
+	field, ok := legacyInputFields[toolName]
+	if !ok {
+		field = "input"
+	}
+	b, err := json.Marshal(map[string]string{field: target})
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 func enrichSubagent(tc *ToolCallChunk, outputText, inputJSON string) {
