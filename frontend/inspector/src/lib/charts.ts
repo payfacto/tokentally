@@ -40,16 +40,23 @@ const TOOLTIP = {
   padding: [8, 12],
 }
 
+type ExtEl = HTMLElement & { __echartsResize?: () => void }
+
 function mount(el: HTMLElement): EChartsInstance {
   const existing = echarts.getInstanceByDom(el)
   if (existing) return existing
   const c = echarts.init(el, null, { renderer: 'svg' })
-  window.addEventListener('resize', () => c.resize())
+  const onResize = () => c.resize()
+  ;(el as ExtEl).__echartsResize = onResize
+  window.addEventListener('resize', onResize)
   return c
 }
 
 export function disposeChart(el: HTMLElement | null): void {
-  if (el) echarts.dispose(el)
+  if (!el) return
+  const handler = (el as ExtEl).__echartsResize
+  if (handler) window.removeEventListener('resize', handler)
+  echarts.dispose(el)
 }
 
 export interface BarChartOptions {
