@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"tokentally/internal/db"
@@ -466,6 +469,124 @@ func (a *App) SaveHTMLExport(html string, filename string) (string, error) {
 		return "", fmt.Errorf("SaveHTMLExport: %w", err)
 	}
 	return path, nil
+}
+
+// OverageInfo holds the rate-limit and authentication details returned by the
+// Claude CLI when called with --verbose --output-format stream-json.
+type OverageInfo struct {
+	Model                 string   `json:"model"`
+	ServiceTier           string   `json:"service_tier"`
+	RateLimitType         string   `json:"rate_limit_type"`
+	OverageStatus         string   `json:"overage_status"`
+	OverageDisabledReason string   `json:"overage_disabled_reason"`
+	IsUsingOverage        bool     `json:"is_using_overage"`
+	Error                 string   `json:"error,omitempty"`
+	RawOutput             []string `json:"raw_output,omitempty"`
+}
+
+type claudeStreamLine struct {
+	Type          string          `json:"type"`
+	Message       json.RawMessage `json:"message,omitempty"`
+	RateLimitInfo json.RawMessage `json:"rate_limit_info,omitempty"`
+	Error         string          `json:"error,omitempty"`
+}
+
+type claudeAssistantMsg struct {
+	Model string `json:"model"`
+	Usage struct {
+		ServiceTier string `json:"service_tier"`
+	} `json:"usage"`
+}
+
+type claudeRateLimitInfo struct {
+	RateLimitType         string `json:"rateLimitType"`
+	OverageStatus         string `json:"overageStatus"`
+	OverageDisabledReason string `json:"overageDisabledReason"`
+	IsUsingOverage        bool   `json:"isUsingOverage"`
+}
+
+// GetOverageInfo launches the Claude CLI with --verbose --output-format stream-json
+// to collect authentication and rate-limit metadata for the current session.
+func (a *App) GetOverageInfo() (OverageInfo, error) {
+	cmd := exec.Command("claude",
+		"-p", "Reply with exactly these three words: oauth cli works",
+		"--verbose",
+		"--output-format", "stream-json",
+		"--model", "sonnet",
+	)
+	hideConsole(cmd)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return OverageInfo{Error: err.Error()}, nil
+	}
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		return OverageInfo{Error: err.Error()}, nil
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 4*1024*1024), 4*1024*1024)
+
+	var result OverageInfo
+	result.Error = "none"
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var sl claudeStreamLine
+		if err := json.Unmarshal([]byte(line), &sl); err != nil {
+			continue
+		}
+		if sl.Type != "system" {
+			result.RawOutput = append(result.RawOutput, line)
+		}
+		if sl.Error != "" {
+			result.Error = sl.Error
+		}
+		switch sl.Type {
+		case "assistant":
+			if sl.Message != nil {
+				var msg claudeAssistantMsg
+				if err := json.Unmarshal(sl.Message, &msg); err == nil {
+					if msg.Model != "" {
+						result.Model = msg.Model
+					}
+					if msg.Usage.ServiceTier != "" {
+						result.ServiceTier = msg.Usage.ServiceTier
+					}
+				}
+			}
+		case "rate_limit_event":
+			if sl.RateLimitInfo != nil {
+				var rli claudeRateLimitInfo
+				if err := json.Unmarshal(sl.RateLimitInfo, &rli); err == nil {
+					result.RateLimitType = rli.RateLimitType
+					result.OverageStatus = rli.OverageStatus
+					result.OverageDisabledReason = rli.OverageDisabledReason
+					result.IsUsingOverage = rli.IsUsingOverage
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		result.Error = err.Error()
+	}
+	cmd.Wait() //nolint:errcheck
+	if result.Error == "none" {
+		if s := strings.TrimSpace(stderrBuf.String()); s != "" && !strings.Contains(strings.ToLower(s), "hook") {
+			result.Error = s
+		}
+	}
+	if result.Error == "none" {
+		result.Error = ""
+	}
+	return result, nil
 }
 
 func (a *App) getPlan() string {
