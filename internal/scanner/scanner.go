@@ -14,8 +14,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"tokentally/internal/db"
+	"tokentally/internal/skills"
 )
+
+// skillSizeCache prevents re-statting the same skill file on every scan tick.
+// Keys are skill names; presence means the size has already been upserted.
+var skillSizeCache sync.Map
 
 // ScanResult summarises one call to ScanDir.
 type ScanResult struct {
@@ -274,6 +282,14 @@ func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
 	for _, tc := range tlist {
 		if err := insertToolCall(conn, rec.UUID, rec.SessionID, slug, rec.Timestamp, tc); err != nil {
 			return 0, 0, fmt.Errorf("insertToolCall: %w", err)
+		}
+		if tc.toolName == "Skill" && tc.target != "" {
+			if _, seen := skillSizeCache.Load(tc.target); !seen {
+				if b, ok := skills.Bytes(tc.target); ok {
+					_ = db.UpsertSkillSize(conn, tc.target, b)
+				}
+				skillSizeCache.Store(tc.target, struct{}{})
+			}
 		}
 	}
 
