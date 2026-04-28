@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api } from '../lib/api'
 import { fmt, SESSION_ID_PREFIX } from '../lib/fmt'
@@ -18,6 +18,7 @@ interface PromptRow {
 const rows = ref<PromptRow[]>([])
 const modalRow = ref<PromptRow | null>(null)
 const copyFlash = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 function prettyPrompt(text: string): string {
   if (!text) return ''
@@ -36,8 +37,9 @@ async function fetchRows() {
 async function copyPrompt() {
   if (!modalRow.value) return
   await navigator.clipboard.writeText(prettyPrompt(modalRow.value.prompt_text || ''))
+  clearTimeout(copyTimer)
   copyFlash.value = true
-  setTimeout(() => { copyFlash.value = false }, 1200)
+  copyTimer = setTimeout(() => { copyFlash.value = false }, 1200)
 }
 
 const subtitle = computed(() =>
@@ -47,6 +49,7 @@ const subtitle = computed(() =>
 )
 
 onMounted(fetchRows)
+onUnmounted(() => clearTimeout(copyTimer))
 watch([sortKey, () => store.lastScan], fetchRows)
 </script>
 
@@ -120,7 +123,8 @@ watch([sortKey, () => store.lastScan], fetchRows)
         <div style="position:relative;flex:1;overflow:hidden;display:flex;flex-direction:column">
           <pre style="font-family:var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:12px;padding-bottom:36px;border-radius:6px;border:1px solid var(--border);font-size:12px;line-height:1.5;overflow-y:auto;flex:1;margin:0">{{ fmt.htmlSafe(prettyPrompt(modalRow.prompt_text || '')) }}</pre>
           <button
-            :style="copyFlash ? 'position:absolute;bottom:8px;right:8px;background:transparent;border:1px solid var(--good);border-radius:4px;padding:5px 7px;cursor:pointer;color:var(--good);display:flex;align-items:center;justify-content:center;line-height:1;' : 'position:absolute;bottom:8px;right:8px;background:transparent;border:1px solid var(--border);border-radius:4px;padding:5px 7px;cursor:pointer;color:var(--muted);display:flex;align-items:center;justify-content:center;line-height:1;'"
+            class="btn-copy"
+            :class="{ 'btn-copy--flash': copyFlash }"
             title="Copy to clipboard"
             @click="copyPrompt"
           >
@@ -137,3 +141,14 @@ watch([sortKey, () => store.lastScan], fetchRows)
     </div>
   </div>
 </template>
+
+<style scoped>
+.btn-copy {
+  position: absolute; bottom: 8px; right: 8px;
+  background: transparent; border: 1px solid var(--border); border-radius: 4px;
+  padding: 5px 7px; cursor: pointer; color: var(--muted);
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  transition: color 120ms, border-color 120ms;
+}
+.btn-copy--flash { border-color: var(--good); color: var(--good); }
+</style>
