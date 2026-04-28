@@ -36,6 +36,7 @@ declare global {
           UpsertPricingPlan(key: string, label: string, monthly: number): Promise<void>
           DeletePricingPlan(key: string): Promise<void>
           // Settings — currency
+          GetCurrency(): Promise<string>
           GetExchangeRates(): Promise<Record<string, number>>
           GetExchangeApiKey(): Promise<string>
           SetCurrency(cur: string): Promise<void>
