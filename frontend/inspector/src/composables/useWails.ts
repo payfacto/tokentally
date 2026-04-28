@@ -1,6 +1,30 @@
 import { ref, watch, type Ref } from 'vue'
 import type { Chunk, Session } from '../lib/types'
 
+export interface OverviewTotals {
+  sessions: number; turns: number; input_tokens: number; output_tokens: number
+  cache_read_tokens: number; cache_create_5m_tokens: number; cache_create_1h_tokens: number
+  cost_usd: number
+}
+
+export interface PricingPlan { monthly: number; label: string }
+export interface Pricing { plans: Record<string, PricingPlan> }
+
+export interface PlanResponse {
+  plan: string; pricing: Pricing; currency: string; exchange_rate: number
+}
+
+export interface ModelRate {
+  model_name: string; tier: string; input: number; output: number
+  cache_read: number; cache_create_5m: number; cache_create_1h: number
+}
+
+export interface PlanEntry { plan_key: string; label: string; monthly: number }
+
+export interface ServiceStatus { installed: boolean; state: string }
+
+export interface ScanResult { Messages: number; Files: number }
+
 function rangeToSince(range: string): string {
   const days: Record<string, number> = { today: 1, '7d': 7, '30d': 30 }
   const d = days[range]
