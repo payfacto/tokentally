@@ -1,24 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 import type { Chunk, Session } from '../lib/types'
 
-declare global {
-  interface Window {
-    go: {
-      app: {
-        App: {
-          GetSessions(limit: number, since: string, until: string): Promise<Session[]>
-          GetSessionChunks(sessionId: string): Promise<Chunk[]>
-          SaveHTMLExport(html: string): Promise<string>
-        }
-      }
-    }
-    runtime: {
-      EventsOn(event: string, cb: (...args: unknown[]) => void): void
-      EventsOff(event: string): void
-    }
-  }
-}
-
 function rangeToSince(range: string): string {
   const days: Record<string, number> = { today: 1, '7d': 7, '30d': 30 }
   const d = days[range]
