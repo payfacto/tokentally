@@ -448,10 +448,13 @@ func (a *App) PurgeOlderThan(days int) (int64, error) {
 
 // SaveHTMLExport opens a native Save-As dialog and writes the provided HTML
 // to the chosen path. Returns the saved path, or empty string if the user cancelled.
-func (a *App) SaveHTMLExport(html string) (string, error) {
+func (a *App) SaveHTMLExport(html string, filename string) (string, error) {
+	if filename == "" {
+		filename = "session.html"
+	}
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Export session as HTML",
-		DefaultFilename: "session.html",
+		DefaultFilename: filename,
 		Filters: []runtime.FileFilter{
 			{DisplayName: "HTML files (*.html)", Pattern: "*.html"},
 		},
