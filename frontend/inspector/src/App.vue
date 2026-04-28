@@ -52,7 +52,7 @@ async function saveFirstRun() {
       >{{ p.slice(1) }}</RouterLink>
     </nav>
     <div class="spacer"></div>
-    <span class="pill" id="plan-pill">{{ store.plan }}</span>
+    <span class="pill" id="plan-pill">{{ store.pricing?.plans?.[store.plan]?.label ?? store.plan }}</span>
   </header>
 
   <RouterView />
