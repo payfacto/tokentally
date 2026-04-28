@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { fmt } from '../lib/fmt'
 import { useAppStore } from '../stores/app'
 import type { ModelRate, PlanEntry } from '../composables/useWails'
@@ -20,7 +20,6 @@ const CURRENCIES = [
 ]
 
 // General
-const currentPlan = ref('api')
 const plans = ref<PlanEntry[]>([])
 const planMsg = ref('')
 const selectedPlan = ref('api')
@@ -37,9 +36,6 @@ const ratesMsg = ref('')
 
 // Models
 const models = ref<ModelRate[]>([])
-
-// Plans table
-const plansMsg = ref('')
 
 // Data management
 const retentionDays = ref(0)
@@ -71,9 +67,11 @@ const planModal = ref<PlanModalState>({
   plan_key: '', label: '', monthly: 0,
 })
 
+const timers: ReturnType<typeof setTimeout>[] = []
+
 function flash(msgRef: { value: string }, text: string, color = 'var(--good)', duration = 2500) {
   msgRef.value = text
-  setTimeout(() => { msgRef.value = '' }, duration)
+  timers.push(setTimeout(() => { msgRef.value = '' }, duration))
 }
 
 async function loadAll() {
@@ -85,7 +83,6 @@ async function loadAll() {
     window.go.app.App.GetExchangeApiKey(),
     window.go.app.App.GetRetentionDays(),
   ])
-  currentPlan.value = planResp.plan || 'api'
   selectedPlan.value = planResp.plan || 'api'
   currency.value = planResp.currency || 'CAD'
   plans.value = (p as PlanEntry[]).sort((a, b) => a.label.localeCompare(b.label))
@@ -100,9 +97,6 @@ async function loadAll() {
 async function savePlan() {
   await window.go.app.App.SetPlan(selectedPlan.value)
   store.plan = selectedPlan.value
-  currentPlan.value = selectedPlan.value
-  const pill = document.getElementById('plan-pill')
-  if (pill) pill.textContent = selectedPlan.value
   flash(planMsg, 'Saved.')
 }
 
@@ -214,12 +208,12 @@ async function refreshServiceStatus() {
 
 async function installService() {
   await window.go.app.App.InstallService().catch(() => {})
-  setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY)
+  timers.push(setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY))
 }
 
 async function uninstallService() {
   await window.go.app.App.UninstallService().catch(() => {})
-  setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY)
+  timers.push(setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY))
 }
 
 async function scanNow() {
@@ -232,7 +226,7 @@ async function scanNow() {
   } catch (e: unknown) {
     scanMsg.value = 'Error: ' + ((e as Error).message || String(e))
   }
-  setTimeout(() => { scanMsg.value = '' }, 2500)
+  timers.push(setTimeout(() => { scanMsg.value = '' }, 2500))
 }
 
 async function saveRetention() {
@@ -256,10 +250,11 @@ async function purgeNow() {
   } catch (e: unknown) {
     purgeMsg.value = 'Error: ' + ((e as Error).message || String(e))
   }
-  setTimeout(() => { purgeMsg.value = '' }, 2500)
+  timers.push(setTimeout(() => { purgeMsg.value = '' }, 2500))
 }
 
 onMounted(loadAll)
+onUnmounted(() => timers.forEach(clearTimeout))
 </script>
 
 <template>
