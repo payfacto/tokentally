@@ -1,33 +1,3 @@
-declare global {
-  interface Window {
-    go: {
-      app: {
-        App: {
-          GetOverview(since: string, until: string): Promise<unknown>
-          GetPrompts(limit: number, sort: string): Promise<unknown>
-          GetProjects(since: string, until: string): Promise<unknown>
-          GetSessions(limit: number, since: string, until: string): Promise<unknown>
-          GetSessionChunks(sessionId: string): Promise<unknown>
-          GetTools(since: string, until: string): Promise<unknown>
-          GetDaily(since: string, until: string): Promise<unknown>
-          GetByModel(since: string, until: string): Promise<unknown>
-          GetSkills(since: string, until: string): Promise<unknown>
-          GetTips(): Promise<unknown>
-          GetPlan(): Promise<unknown>
-          SetPlan(plan: string): Promise<unknown>
-          DismissTip(key: string): Promise<unknown>
-          ScanNow(): Promise<unknown>
-          SaveHTMLExport(html: string): Promise<string>
-        }
-      }
-    }
-    runtime: {
-      EventsOn(event: string, cb: (...args: unknown[]) => void): void
-      EventsOff(event: string): void
-    }
-  }
-}
-
 export const SECONDS_PER_DAY = 86_400
 
 export const RANGES = [
@@ -57,7 +27,7 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/overview': (qs) => App().GetOverview(qs.since || '', qs.until || ''),
   '/api/prompts':  (qs) => App().GetPrompts(parseInt(qs.limit || '50', 10), qs.sort || 'tokens'),
   '/api/projects': (qs) => App().GetProjects(qs.since || '', qs.until || ''),
-  '/api/sessions': (qs) => App().GetSessions(parseInt(qs.limit || '20', 10), qs.since || '', qs.until || ''),
+  '/api/sessions': (qs) => App().GetSessions(parseInt(qs.limit || '200', 10), qs.since || '', qs.until || ''),
   '/api/tools':    (qs) => App().GetTools(qs.since || '', qs.until || ''),
   '/api/daily':    (qs) => App().GetDaily(qs.since || '', qs.until || ''),
   '/api/by-model': (qs) => App().GetByModel(qs.since || '', qs.until || ''),
