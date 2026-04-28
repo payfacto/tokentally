@@ -38,7 +38,7 @@ watch(() => store.lastScan, fetchRows)
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.project_slug">
-            <td :title="r.project_slug">{{ fmt.htmlSafe(r.project_name || r.project_slug) }}</td>
+            <td :title="r.project_slug">{{ r.project_name || r.project_slug }}</td>
             <td class="num">{{ fmt.int(r.sessions) }}</td>
             <td class="num">{{ fmt.int(r.turns) }}</td>
             <td class="num">{{ fmt.int(r.billable_tokens) }}</td>
