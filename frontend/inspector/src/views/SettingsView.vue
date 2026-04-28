@@ -101,7 +101,7 @@ async function savePlan() {
 }
 
 function onCurrencyChange() {
-  exchangeRate.value = +(rates.value[currency.value] || 1.0).toFixed(4)
+  exchangeRate.value = +(rates.value[currency.value] ?? 1.0).toFixed(4)
 }
 
 async function saveCurrency() {

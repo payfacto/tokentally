@@ -59,14 +59,20 @@ export function useSessionChunks(id: Ref<string>) {
   const visibleCount = ref(20)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  let rafHandle: number | undefined
+
+  function cancelReveal() {
+    if (rafHandle !== undefined) { cancelAnimationFrame(rafHandle); rafHandle = undefined }
+  }
 
   function revealProgressively(total: number) {
     if (visibleCount.value >= total) return
     visibleCount.value = Math.min(visibleCount.value + 20, total)
-    requestAnimationFrame(() => revealProgressively(total))
+    rafHandle = requestAnimationFrame(() => revealProgressively(total))
   }
 
   async function refetch() {
+    cancelReveal()
     if (!id.value) { data.value = []; visibleCount.value = 20; return }
     isLoading.value = true
     error.value = null
@@ -82,5 +88,5 @@ export function useSessionChunks(id: Ref<string>) {
   }
 
   watch(id, refetch, { immediate: true })
-  return { data, visibleCount, isLoading, error, refetch }
+  return { data, visibleCount, isLoading, error, refetch, cancelReveal }
 }

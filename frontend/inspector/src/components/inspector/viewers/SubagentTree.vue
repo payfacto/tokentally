@@ -6,13 +6,18 @@ import type { ToolCallChunk } from '../../../lib/types'
 
 const props = defineProps<{ toolCall: ToolCallChunk; depth?: number }>()
 const expanded = ref(false)
-const subId = ref(props.toolCall.subagentId ?? '')
+const subId = ref('')
 const { data: chunks, isLoading } = useSessionChunks(subId)
+
+function toggle() {
+  expanded.value = !expanded.value
+  if (expanded.value && !subId.value) subId.value = props.toolCall.subagentId ?? ''
+}
 </script>
 
 <template>
   <div class="subagent-tree">
-    <div class="subagent-header" @click="expanded = !expanded">
+    <div class="subagent-header" @click="toggle()">
       <span class="muted" style="font-size:11px">{{ expanded ? '▾' : '▸' }}</span>
       <span class="muted" style="font-size:11px;font-family:var(--mono)">
         {{ toolCall.subagentName || subId.slice(0, 8) }}

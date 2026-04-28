@@ -228,7 +228,7 @@ watch([rangeKey, () => store.lastScan], fetchAll)
           <tbody>
             <tr v-for="s in sessions" :key="(s.session_id as string)">
               <td class="mono">{{ fmt.ts(s.started as string) }}</td>
-              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id as string)">{{ fmt.htmlSafe((s.project_name || s.project_slug) as string) }}</RouterLink></td>
+              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id as string)">{{ (s.project_name || s.project_slug) as string }}</RouterLink></td>
               <td class="num">{{ fmt.compact(s.tokens as number) }}</td>
             </tr>
             <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionList, useSessionChunks } from '../composables/useWails'
 import { useAppStore } from '../stores/app'
@@ -19,7 +19,7 @@ const selectedId = computed(() =>
 )
 
 const { data: sessions, refetch: refetchSessions } = useSessionList(range)
-const { data: chunks, visibleCount, isLoading, error } = useSessionChunks(selectedId)
+const { data: chunks, visibleCount, isLoading, error, cancelReveal } = useSessionChunks(selectedId)
 
 function pick(session: Session) {
   router.push('/sessions/' + encodeURIComponent(session.session_id))
@@ -31,11 +31,7 @@ onMounted(() => {
   })
 })
 
-// Re-fetch session list on background scan
-const unwatch = store.$subscribe((_mutation, state) => {
-  if (state.lastScan > 0) refetchSessions()
-})
-onUnmounted(() => unwatch())
+watch(() => store.lastScan, refetchSessions)
 
 const selectedSession = computed(() =>
   sessions.value.find((s: Session) => s.session_id === selectedId.value)
@@ -62,7 +58,7 @@ async function exportHTML() {
   }
 }
 
-onUnmounted(() => clearTimeout(exportTimer))
+onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 </script>
 
 <template>
