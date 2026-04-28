@@ -109,3 +109,53 @@
 
 - The `-skipbindings` build has not been run since the new Go methods were added — confirm `go build ./...` passes (it does per CI in the subagent runs) and the Wails build succeeds
 - `wails build` (full, with binding generation) has not been tested this session
+
+## Session — 2026-04-27 23:30
+
+### What Was Done
+
+- Implemented 4 Session Inspector UX improvements via subagent-driven development (15 commits):
+  - **N+1 fix**: `batchQueryToolCalls` replaces per-turn `queryToolCalls` loop — single `WHERE message_uuid IN (...)` query; added `TestGetSessionChunks_MultipleTurnsWithTools` with tool-ID assertion — `937ecbd`, `250046b`
+  - **Progressive render**: `useSessionChunks` adds `visibleCount` ref (starts at 20); `revealProgressively` schedules `requestAnimationFrame` increments of 20; first 20 chunks paint immediately — `3ff5813`
+  - **Sidebar scroll**: `onMounted` calls `nextTick(() => .session-row.active?.scrollIntoView({ block: 'nearest' }))` — `9a05b45`
+  - **Copy buttons**: `clipboard.ts` helper (`copyMarkdown` with try/catch + green flash); icon-only copy SVG button added to `UserTurn`, `CompactBoundary`, `SystemMessage`, `AITurn` — `28b5125`, `397c498`, `bfc8d67`, `3e16e99`, `b691eb2`, `82c559f`, `4cd0fbe`
+  - **HTML export**: `export.ts` (`generateSessionHTML` — self-contained HTML with `@media prefers-color-scheme:dark` CSS, all chunks rendered, no external CDN); `app.go` `SaveHTMLExport` method (native Save-As dialog via `runtime.SaveFileDialog` + `os.WriteFile`); download icon button in inspector header — `51580b0`, `3da79ee`, `5a86f08`
+- Final code review identified silent scan-error swallow in `batchQueryToolCalls`; fixed `continue` → `return nil, fmt.Errorf("batchQueryToolCalls scan: %w", err)` — `21bd7c3`
+- Wails app fully built (`tokentally.exe`, 75 MB) and Vue bundle verified (88 kB)
+
+### Files Changed
+
+- `internal/db/chunks.go` — `batchQueryToolCalls` replaces N+1 loop; `buildChunk` signature cleaned; silent scan error fixed (`21bd7c3`)
+- `internal/db/db_test.go` — added `TestGetSessionChunks_MultipleTurnsWithTools` with tool-ID cross-contamination assertion
+- `app/app.go` — added `"os"` import + `SaveHTMLExport(html string) (string, error)` method after `PurgeOlderThan`
+- `frontend/inspector/src/lib/clipboard.ts` — new file: `copyMarkdown(text, btn)` helper with try/catch
+- `frontend/inspector/src/lib/export.ts` — new file: `generateSessionHTML(chunks, meta)` offline HTML generator
+- `frontend/inspector/src/composables/useWails.ts` — `visibleCount` ref + `revealProgressively`; `SaveHTMLExport` TypeScript declaration added
+- `frontend/inspector/src/App.vue` — `scrollIntoView` on mount; `visibleCount` slice; export button + `exportHTML()` handler; `.spacer`/`.btn-export`/`.export-msg` styles
+- `frontend/inspector/src/components/inspector/UserTurn.vue` — icon-only copy button (bottom-right absolute)
+- `frontend/inspector/src/components/inspector/AITurn.vue` — copy button in turn-footer flex row; `buildMarkdown` helper
+- `frontend/inspector/src/components/inspector/CompactBoundary.vue` — icon-only copy button (bottom-right absolute)
+- `frontend/inspector/src/components/inspector/SystemMessage.vue` — icon-only copy button (flex sibling)
+- `docs/superpowers/specs/2026-04-27-inspector-ux-design.md` — design spec
+- `docs/superpowers/plans/2026-04-27-inspector-ux.md` — implementation plan
+
+### Decisions Made
+
+- Progressive reveal is client-side only (RAF); Go still returns all chunks in one Wails call — simpler than server-side streaming, adequate for typical session sizes
+- HTML export CSS uses `:root` vars + `@media(prefers-color-scheme:dark)` override — works offline in both browser themes without a `<script>` toggle
+- `copyMarkdown` silently no-ops on clipboard failure (permission denied, no focus) — green flash only fires on success; deliberate UX choice
+- `clipboard.ts` uses inline `style` mutation rather than class toggle — avoids global CSS dependency; acceptable for a small utility
+- `SaveHTMLExport` returns `("", nil)` on user cancel (empty path from dialog) — silent ignore; `App.vue` checks `if (path)` before showing "Saved" toast
+- `batchQueryToolCalls` scan errors now propagate instead of silently skipping rows — consistent with the rest of `chunks.go`; schema is stable so this was a latent risk, not an active bug
+
+### Inferred Next Steps
+
+- **Live smoke test** — launch the built `tokentally.exe`, open Sessions tab, verify progressive render (first 20 chunks appear before full load), test copy buttons (User + AI + Compact + System turns), test export (click download icon, save, open in browser)
+- **Regenerate Wails bindings** — run `wails build -platform windows/amd64` (without `-skipbindings`) to update `frontend/wailsjs/go/app/App.js` and `App.d.ts` with `SaveHTMLExport`
+- **Consider disabling export button on empty session** — reviewer noted the export button is reachable even when `chunks.length === 0`; could add `:disabled="!chunks.length"` to the button
+- **Consider `<details>` accordion for tool calls in export.ts** — design spec mentioned "tool call accordions" but plan code (and implementation) uses plain visible divs; could wrap `renderToolCall` output in `<details>`/`<summary>` if users want collapsible tool calls in the exported HTML
+
+### Open Questions / Blockers
+
+- Wails binding stubs still not regenerated for `SaveHTMLExport` — runtime calls work without stubs, but `frontend/wailsjs/go/app/App.d.ts` is stale
+- The `started` field on `selectedSession` may be undefined for sessions that lack it — `exportHTML()` uses `selectedSession.value?.started ?? ''`; the export will show `— → —` for date range in that case (harmless)

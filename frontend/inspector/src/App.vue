@@ -6,7 +6,7 @@ import { fmt } from './lib/fmt'
 
 const store = useAppStore()
 
-const NAV_ROUTES = ['/overview', '/prompts', '/sessions', '/projects', '/skills', '/tips', '/settings']
+const NAV_ROUTES = ['/overview', '/prompts', '/sessions', '/projects', '/skills', '/tips', '/calculator', '/settings']
 
 const showFirstRun = ref(false)
 const firstRunPlan = ref('api')
