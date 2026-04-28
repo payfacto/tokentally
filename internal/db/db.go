@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS dismissed_tips (
   tip_key       TEXT PRIMARY KEY,
   dismissed_at  REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS skill_sizes (
+  skill_name TEXT PRIMARY KEY,
+  file_bytes INTEGER NOT NULL,
+  updated_at TEXT    NOT NULL
+);
 `
 
 // nowFunc is a package-level variable so unit tests can inject a deterministic
@@ -453,15 +458,17 @@ ORDER BY (input_tokens+output_tokens+cache_create_5m_tokens+cache_create_1h_toke
 }
 
 // SkillBreakdown returns per-skill invocation counts from tool_calls where
-// tool_name='Skill'.
+// tool_name='Skill'. tokens_per_call is null when the skill file size is unknown.
 func SkillBreakdown(conn *sql.DB, since, until string) ([]map[string]any, error) {
-	rng, args := RangeClause(since, until, "timestamp")
+	rng, args := RangeClause(since, until, "t.timestamp")
 	q := `
-SELECT target AS skill, COUNT(*) AS invocations,
-       COUNT(DISTINCT session_id) AS sessions, MAX(timestamp) AS last_used
-FROM tool_calls
-WHERE tool_name='Skill' AND target IS NOT NULL AND target!=''` + rng + `
-GROUP BY target ORDER BY invocations DESC`
+SELECT t.target AS skill, COUNT(*) AS invocations,
+       COUNT(DISTINCT t.session_id) AS sessions, MAX(t.timestamp) AS last_used,
+       CAST(ROUND(ss.file_bytes / 4.0) AS INTEGER) AS tokens_per_call
+FROM tool_calls t
+LEFT JOIN skill_sizes ss ON ss.skill_name = t.target
+WHERE t.tool_name='Skill' AND t.target IS NOT NULL AND t.target!=''` + rng + `
+GROUP BY t.target ORDER BY invocations DESC`
 
 	rows, err := conn.Query(q, args...)
 	if err != nil {
@@ -469,6 +476,17 @@ GROUP BY target ORDER BY invocations DESC`
 	}
 	defer rows.Close()
 	return scanMaps(rows)
+}
+
+// UpsertSkillSize records the byte size of a skill's SKILL.md file.
+// Subsequent calls with the same name update the stored size.
+func UpsertSkillSize(conn *sql.DB, skillName string, fileBytes int64) error {
+	_, err := conn.Exec(
+		`INSERT INTO skill_sizes (skill_name, file_bytes, updated_at) VALUES (?,?,?)
+		 ON CONFLICT(skill_name) DO UPDATE SET file_bytes=excluded.file_bytes, updated_at=excluded.updated_at`,
+		skillName, fileBytes, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
 }
 
 // GetPlan returns the stored plan name, defaulting to "api".
