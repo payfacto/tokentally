@@ -1,26 +1,9 @@
-import { createApp, type App as VueApp } from 'vue'
-import AppVue from './App.vue'
+// Temporary stub — replaced in Task 4
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import { createRouter, createWebHashHistory } from 'vue-router'
+import { defineComponent } from 'vue'
 
-interface SessionInspectorAPI {
-  mount(el: HTMLElement, hash: string): void
-  unmount(): void
-}
-
-declare global {
-  interface Window {
-    SessionInspector: SessionInspectorAPI
-  }
-}
-
-let instance: VueApp | null = null
-
-window.SessionInspector = {
-  mount(el: HTMLElement, hash: string) {
-    instance = createApp(AppVue, { initialHash: hash })
-    instance.mount(el)
-  },
-  unmount() {
-    instance?.unmount()
-    instance = null
-  },
-}
+const Stub = defineComponent({ template: '<div>loading</div>' })
+const router = createRouter({ history: createWebHashHistory(), routes: [{ path: '/:p(.*)', component: Stub }] })
+createApp(Stub).use(createPinia()).use(router).mount('#app')
