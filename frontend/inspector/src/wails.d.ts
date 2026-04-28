@@ -1,4 +1,5 @@
 import type { Chunk, Session } from './lib/types'
+import type { PlanResponse } from './composables/useWails'
 
 declare global {
   interface Window {
@@ -22,7 +23,7 @@ declare global {
           DismissTip(key: string): Promise<void>
           ScanNow(): Promise<unknown>
           // Plan
-          GetPlan(): Promise<unknown>
+          GetPlan(): Promise<PlanResponse>
           SetPlan(plan: string): Promise<void>
           // Settings — pricing
           GetPricingModels(): Promise<unknown[]>
