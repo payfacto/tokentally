@@ -1,21 +1,36 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { api, withSince, sinceIso } from '../lib/api'
-import { stackedBarChart, donutChart, groupedBarChart, barChart } from '../lib/charts'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { RouterLink } from 'vue-router'
+import { api, withSince, sinceIso, RANGES } from '../lib/api'
+import { stackedBarChart, donutChart, groupedBarChart, barChart, disposeChart } from '../lib/charts'
 import { fmt } from '../lib/fmt'
 import { useRange } from '../composables/useRange'
 import { useAppStore } from '../stores/app'
-import { RANGES } from '../lib/api'
 
 const store = useAppStore()
 const { range, rangeKey, setRange } = useRange()
+
+interface DailyRow {
+  day: string
+  input_tokens: number
+  output_tokens: number
+  cache_create_tokens: number
+  cache_read_tokens: number
+}
+interface ByModelRow {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cache_create_5m_tokens: number
+  cache_create_1h_tokens: number
+}
 
 const totals  = ref<Record<string, number>>({})
 const projects = ref<Array<Record<string, unknown>>>([])
 const sessions = ref<Array<Record<string, unknown>>>([])
 const tools    = ref<Array<Record<string, unknown>>>([])
-const daily    = ref<Array<Record<string, number>>>([])
-const byModel  = ref<Array<Record<string, number>>>([])
+const daily    = ref<DailyRow[]>([])
+const byModel  = ref<ByModelRow[]>([])
 
 const chDailyBillable = ref<HTMLElement | null>(null)
 const chDailyCache    = ref<HTMLElement | null>(null)
@@ -39,8 +54,8 @@ async function fetchAll() {
   projects.value = p as Array<Record<string, unknown>>
   sessions.value = s as Array<Record<string, unknown>>
   tools.value    = tl as Array<Record<string, unknown>>
-  daily.value    = d as Array<Record<string, number>>
-  byModel.value  = bm as Array<Record<string, number>>
+  daily.value    = d as DailyRow[]
+  byModel.value  = bm as ByModelRow[]
   await nextTick()
   renderCharts()
 }
@@ -48,7 +63,7 @@ async function fetchAll() {
 function renderCharts() {
   if (chDailyBillable.value) {
     stackedBarChart(chDailyBillable.value, {
-      categories: daily.value.map(d => d.day as unknown as string),
+      categories: daily.value.map(d => d.day),
       series: [
         { name: 'input',        values: daily.value.map(d => d.input_tokens || 0),        color: '#eb733b' },
         { name: 'output',       values: daily.value.map(d => d.output_tokens || 0),       color: '#b04e20' },
@@ -58,7 +73,7 @@ function renderCharts() {
   }
   if (chDailyCache.value) {
     stackedBarChart(chDailyCache.value, {
-      categories: daily.value.map(d => d.day as unknown as string),
+      categories: daily.value.map(d => d.day),
       series: [
         { name: 'cache read', values: daily.value.map(d => d.cache_read_tokens || 0), color: '#2d8a5e' },
       ],
@@ -68,7 +83,7 @@ function renderCharts() {
     donutChart(chModel.value,
       byModel.value
         .map(m => ({
-          name: fmt.modelShort(m.model as string) || 'unknown',
+          name: fmt.modelShort(m.model) || 'unknown',
           value: (m.input_tokens || 0) + (m.output_tokens || 0)
                + (m.cache_create_5m_tokens || 0) + (m.cache_create_1h_tokens || 0),
         }))
@@ -105,6 +120,13 @@ const cacheCreate = computed(() =>
 const planEntry = computed(() => store.pricing?.plans?.[store.plan])
 
 onMounted(fetchAll)
+onUnmounted(() => {
+  disposeChart(chDailyBillable.value)
+  disposeChart(chDailyCache.value)
+  disposeChart(chModel.value)
+  disposeChart(chProjects.value)
+  disposeChart(chTools.value)
+})
 watch([rangeKey, () => store.lastScan], fetchAll)
 </script>
 
@@ -199,14 +221,14 @@ watch([rangeKey, () => store.lastScan], fetchAll)
       <div class="card">
         <h3 style="display:flex;align-items:center">
           <span>Recent sessions</span><span class="spacer"></span>
-          <a href="#/sessions" style="font-weight:400;font-size:12px">all →</a>
+          <RouterLink to="/sessions" style="font-weight:400;font-size:12px">all →</RouterLink>
         </h3>
         <table>
           <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
           <tbody>
             <tr v-for="s in sessions" :key="(s.session_id as string)">
               <td class="mono">{{ fmt.ts(s.started as string) }}</td>
-              <td><a :href="'#/sessions/' + encodeURIComponent(s.session_id as string)">{{ fmt.htmlSafe((s.project_name || s.project_slug) as string) }}</a></td>
+              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id as string)">{{ fmt.htmlSafe((s.project_name || s.project_slug) as string) }}</RouterLink></td>
               <td class="num">{{ fmt.compact(s.tokens as number) }}</td>
             </tr>
             <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>

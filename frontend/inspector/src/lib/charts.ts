@@ -41,9 +41,15 @@ const TOOLTIP = {
 }
 
 function mount(el: HTMLElement): EChartsInstance {
+  const existing = echarts.getInstanceByDom(el)
+  if (existing) return existing
   const c = echarts.init(el, null, { renderer: 'svg' })
   window.addEventListener('resize', () => c.resize())
   return c
+}
+
+export function disposeChart(el: HTMLElement | null): void {
+  if (el) echarts.dispose(el)
 }
 
 export interface BarChartOptions {
