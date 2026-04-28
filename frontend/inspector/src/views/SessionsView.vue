@@ -44,21 +44,25 @@ const fmtDate = (ts: string) => ts ? ts.slice(0, 10) : '—'
 const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
 
 const exportMsg = ref('')
+let exportTimer: ReturnType<typeof setTimeout> | undefined
 
 async function exportHTML() {
   const meta: SessionMeta = {
     sessionId: selectedId.value,
     projectName: selectedSession.value?.project_name ?? '',
     started: selectedSession.value?.started ?? '',
-    ended: (chunks.value as Chunk[]).at(-1)?.timestamp ?? '',
+    ended: chunks.value.at(-1)?.timestamp ?? '',
   }
-  const html = generateSessionHTML(chunks.value as Chunk[], meta)
+  const html = generateSessionHTML(chunks.value, meta)
   const path = await window.go.app.App.SaveHTMLExport(html)
   if (path) {
+    clearTimeout(exportTimer)
     exportMsg.value = 'Saved'
-    setTimeout(() => { exportMsg.value = '' }, 2000)
+    exportTimer = setTimeout(() => { exportMsg.value = '' }, 2000)
   }
 }
+
+onUnmounted(() => clearTimeout(exportTimer))
 </script>
 
 <template>
@@ -121,7 +125,7 @@ async function exportHTML() {
           <span>○</span> No turns found for this session.
         </div>
         <div v-else class="inspector-scroll">
-          <SessionInspector :chunks="(chunks.slice(0, visibleCount) as Chunk[])" />
+          <SessionInspector :chunks="chunks.slice(0, visibleCount)" />
         </div>
       </template>
     </div>
