@@ -9,15 +9,15 @@ export default defineConfig({
   build: {
     lib: {
       entry: 'src/main.ts',
-      name: 'SessionInspector',
+      name: 'TokenTally',
       formats: ['iife'],
     },
-    outDir: '../web/inspector',
-    emptyOutDir: true,
+    outDir: '../web',
+    emptyOutDir: false,
     rollupOptions: {
       output: {
-        entryFileNames: 'index.js',
-        assetFileNames: 'index.[ext]',
+        entryFileNames: 'app.bundle.js',
+        assetFileNames: 'app.[ext]',
       },
     },
   },
