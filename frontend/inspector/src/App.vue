@@ -25,7 +25,7 @@ onMounted(async () => {
   }
 
   try {
-    window.runtime.EventsOn('scan', () => { store.lastScan = Date.now() })
+    window.runtime.EventsOn('scan', () => store.recordScan())
   } catch { /* not in Wails env */ }
 })
 

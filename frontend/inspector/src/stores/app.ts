@@ -10,8 +10,11 @@ export const useAppStore = defineStore('app', {
     lastScan: 0 as number,
   }),
   actions: {
+    recordScan() {
+      this.lastScan = Date.now()
+    },
     async boot() {
-      const resp = await window.go.app.App.GetPlan() as PlanResponse
+      const resp = await window.go.app.App.GetPlan()
       this.plan = resp.plan
       this.pricing = resp.pricing
       this.currency = resp.currency || 'CAD'
