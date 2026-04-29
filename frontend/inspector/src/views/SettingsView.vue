@@ -78,8 +78,8 @@ async function loadAll() {
   ])
   selectedPlan.value = planResp.plan || 'api'
   currency.value = planResp.currency || 'CAD'
-  plans.value = (p as PlanEntry[]).sort((a, b) => a.label.localeCompare(b.label))
-  models.value = m as ModelRate[]
+  plans.value = p.sort((a, b) => a.label.localeCompare(b.label))
+  models.value = m
   rates.value = r
   apiKey.value = key || ''
   retentionDays.value = days > 0 ? days : 0
@@ -121,7 +121,7 @@ async function refreshRates() {
     }
     flash(ratesMsg, 'Rates updated from exchangerate-api.com.')
   } catch (e: unknown) {
-    ratesMsg.value = 'Error: ' + ((e as Error).message || String(e))
+    ratesMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -149,13 +149,13 @@ async function saveModel() {
     mm.input, mm.output, mm.cache_read, mm.cache_create_5m, mm.cache_create_1h,
   )
   modelModal.value.show = false
-  models.value = (await window.go.app.App.GetPricingModels()) as ModelRate[]
+  models.value = await window.go.app.App.GetPricingModels()
 }
 
 async function deleteModel(name: string) {
   if (!confirm(`Delete model "${name}"?`)) return
   await window.go.app.App.DeletePricingModel(name)
-  models.value = (await window.go.app.App.GetPricingModels()) as ModelRate[]
+  models.value = await window.go.app.App.GetPricingModels()
 }
 
 async function resetPricing() {
@@ -177,18 +177,18 @@ async function savePlanEntry() {
   if (!pm.plan_key.trim() || !pm.label.trim()) return
   await window.go.app.App.UpsertPricingPlan(pm.plan_key.trim(), pm.label.trim(), pm.monthly)
   planModal.value.show = false
-  plans.value = ((await window.go.app.App.GetPricingPlans()) as PlanEntry[]).sort((a, b) => a.label.localeCompare(b.label))
+  plans.value = (await window.go.app.App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
 }
 
 async function deletePlan(key: string) {
   if (!confirm(`Delete plan "${key}"?`)) return
   await window.go.app.App.DeletePricingPlan(key)
-  plans.value = ((await window.go.app.App.GetPricingPlans()) as PlanEntry[]).sort((a, b) => a.label.localeCompare(b.label))
+  plans.value = (await window.go.app.App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
 }
 
 async function refreshServiceStatus() {
   try {
-    const status = await window.go.app.App.GetServiceStatus() as { installed: boolean; state: string }
+    const status = await window.go.app.App.GetServiceStatus()
     if (!status.installed) {
       serviceStatus.value = '● Not installed'
     } else {
@@ -212,12 +212,12 @@ async function uninstallService() {
 async function scanNow() {
   scanMsg.value = 'Scanning…'
   try {
-    const result = await window.go.app.App.ScanNow() as { Messages: number; Files: number }
+    const result = await window.go.app.App.ScanNow()
     scanMsg.value = result.Messages > 0 || result.Files > 0
       ? `Scanned ${result.Messages} messages in ${result.Files} files`
       : 'Nothing new'
   } catch (e: unknown) {
-    scanMsg.value = 'Error: ' + ((e as Error).message || String(e))
+    scanMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))
   }
   timers.push(setTimeout(() => { scanMsg.value = '' }, 2500))
 }
@@ -229,7 +229,7 @@ async function saveRetention() {
       ? `Saved — auto-purge every scan (>${retentionDays.value} days)`
       : 'Saved — retention off')
   } catch (e: unknown) {
-    flash(retentionMsg, 'Error: ' + ((e as Error).message || String(e)))
+    flash(retentionMsg, 'Error: ' + (e instanceof Error ? e.message : String(e)))
   }
 }
 
@@ -241,7 +241,7 @@ async function purgeNow() {
     const deleted = await window.go.app.App.PurgeOlderThan(retentionDays.value)
     purgeMsg.value = deleted > 0 ? `Deleted ${deleted.toLocaleString()} messages` : 'Nothing to purge'
   } catch (e: unknown) {
-    purgeMsg.value = 'Error: ' + ((e as Error).message || String(e))
+    purgeMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))
   }
   timers.push(setTimeout(() => { purgeMsg.value = '' }, 2500))
 }

@@ -15,7 +15,7 @@ interface ProjectRow {
 const rows = ref<ProjectRow[]>([])
 
 async function fetchRows() {
-  rows.value = (await api('/api/projects')) as ProjectRow[]
+  rows.value = await api<ProjectRow[]>('/api/projects')
 }
 
 function cacheHitPct(r: ProjectRow): string {
