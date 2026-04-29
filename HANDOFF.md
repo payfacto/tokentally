@@ -159,3 +159,43 @@
 
 - Wails binding stubs still not regenerated for `SaveHTMLExport` — runtime calls work without stubs, but `frontend/wailsjs/go/app/App.d.ts` is stale
 - The `started` field on `selectedSession` may be undefined for sessions that lack it — `exportHTML()` uses `selectedSession.value?.started ?? ''`; the export will show `— → —` for date range in that case (harmless)
+
+## Session — 2026-04-29 (afternoon)
+
+### What Was Done
+
+- Added loading spinner to Overage & Auth Status "Check Now" button — CSS `@keyframes spin` + `.btn-spinner` element shown while `loading` ref is true; self-contained in `OverageView.vue` scoped styles
+- Investigated Prompts page "synthetic" entries — confirmed `<synthetic>` is a literal model name written by Claude Code into JSONL for subagent sidechain records (`isSidechain: true`); hook/attachment records are `type='attachment'` in the DB
+- Extended `ExpensivePrompts` query in `internal/db/db.go` to expose `u.is_sidechain` and `u.type AS msg_type`, and widened `WHERE` to include `type='attachment'` rows (hook prompts) alongside `type='user'`
+- Added conditional row icons in `PromptsView.vue`: zap SVG for hook rows, bot SVG for subagent rows, person SVG for regular user rows; each has a `title` tooltip
+- Added `tag-hook` / `tag-subagent` pill annotations in the Prompts modal header using inline SVG stroke icons (no emoji) matching the app's existing icon style
+
+### Files Changed
+
+- `frontend/inspector/src/views/OverageView.vue` — added `.btn-spinner` CSS + spinner element inside Check Now button
+- `frontend/inspector/src/views/PromptsView.vue` — added `is_sidechain`/`msg_type` to `PromptRow` interface; conditional icons in table; hook/subagent tag pills in modal header; scoped tag styles
+- `internal/db/db.go` — `ExpensivePrompts`: added `u.is_sidechain, u.type AS msg_type` to SELECT; widened WHERE to `IN ('user','attachment')` with `AND prompt_text != ''`
+- `frontend/web/app.bundle.js` + `frontend/web/app.css` — rebuilt artifacts (do not edit directly)
+- `build/bin/tokentally.exe` — rebuilt binary
+
+### Decisions Made
+
+- Skill name for subagent prompts is **not capturable** — it is never written into the JSONL; the `agentId` and `isSidechain` flag are the only metadata available on sidechain records
+- Used inline SVG stroke icons (not emoji) throughout, matching the existing Lucide-style icon set already in use
+- Hook rows included in Prompts view only when `prompt_text != ''` to avoid showing empty hook records (many attachment records have no meaningful text)
+
+### Open Questions / Blockers
+
+- None
+
+## Running state
+
+- Background processes: none
+- Dev servers / ports: none
+- Open worktrees / branches: none
+
+### Inferred Next Steps
+
+- The Prompts page description still reads "Your latest prompts" — could add a note that subagent and hook entries are also included
+- Hook row `session_id` links may not navigate correctly if the attachment record's `session_id` belongs to a parent session that has no entries in the Sessions view — worth testing the link behaviour on a hook row
+- The `is_sidechain` field is now exposed but not used as a filter — consider adding a toggle in the Prompts view to show/hide subagent prompts for users who only want to see their own input

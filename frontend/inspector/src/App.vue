@@ -58,19 +58,22 @@ async function saveFirstRun() {
   <RouterView />
 
   <div v-if="showFirstRun" class="modal-overlay">
-    <div class="modal">
-      <h2>Welcome — pick your plan</h2>
-      <p>This sets how costs are displayed. Change it later in Settings.</p>
-      <select v-model="firstRunPlan" style="width:100%">
-        <option
-          v-for="[k, v] in plans"
-          :key="k"
-          :value="k"
-        >{{ v.label }}{{ v.monthly ? ` — ${fmt.money(v.monthly, store.currency, store.exchangeRate)}/mo` : '' }}</option>
-      </select>
-      <div class="actions">
-        <div class="spacer"></div>
-        <button class="primary" @click="saveFirstRun">Continue</button>
+    <div class="modal first-run-modal">
+      <img :src="'/web/mascot.png'" class="first-run-mascot" alt="" />
+      <div class="first-run-body">
+        <h2>Welcome — pick your plan</h2>
+        <p>This sets how costs are displayed. Change it later in Settings.</p>
+        <select v-model="firstRunPlan" style="width:100%">
+          <option
+            v-for="[k, v] in plans"
+            :key="k"
+            :value="k"
+          >{{ v.label }}{{ v.monthly ? ` — ${fmt.money(v.monthly, store.currency, store.exchangeRate)}/mo` : '' }}</option>
+        </select>
+        <div class="actions">
+          <div class="spacer"></div>
+          <button class="primary" @click="saveFirstRun">Continue</button>
+        </div>
       </div>
     </div>
   </div>

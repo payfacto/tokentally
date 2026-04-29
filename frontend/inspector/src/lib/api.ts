@@ -25,7 +25,8 @@ type QS = Record<string, string>
 
 const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/overview': (qs) => App().GetOverview(qs.since || '', qs.until || ''),
-  '/api/prompts':  (qs) => App().GetPrompts(parseInt(qs.limit || '50', 10), qs.sort || 'tokens'),
+  '/api/prompts':        (qs) => App().GetPrompts(parseInt(qs.limit || '50', 10), qs.sort || 'tokens'),
+  '/api/prompts/search': (qs) => App().SearchPrompts(qs.q || '', qs.types || 'user', qs.from || '', qs.to || ''),
   '/api/projects': (qs) => App().GetProjects(qs.since || '', qs.until || ''),
   '/api/sessions': (qs) => App().GetSessions(parseInt(qs.limit || '200', 10), qs.since || '', qs.until || ''),
   '/api/tools':    (qs) => App().GetTools(qs.since || '', qs.until || ''),

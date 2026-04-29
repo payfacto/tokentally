@@ -11,7 +11,7 @@ defineProps<{ chunks: Chunk[]; depth?: number }>()
 <template>
   <div class="session-inspector">
     <template v-for="(chunk, i) in chunks" :key="i">
-      <UserTurn v-if="chunk.type === 'user'" :chunk="chunk" />
+      <UserTurn v-if="chunk.type === 'user' && chunk.text?.trim()" :chunk="chunk" />
       <AITurn v-else-if="chunk.type === 'ai'" :chunk="chunk" :depth="depth" />
       <CompactBoundary v-else-if="chunk.type === 'compact'" :chunk="chunk" />
       <SystemMessage v-else-if="chunk.type === 'system'" :chunk="chunk" />

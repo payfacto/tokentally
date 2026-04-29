@@ -41,6 +41,7 @@ async function check() {
       </p>
 
       <button class="primary" :disabled="loading" @click="check">
+        <span v-if="loading" class="btn-spinner" aria-hidden="true"></span>
         {{ loading ? 'Checking…' : 'Check Now' }}
       </button>
 
@@ -95,6 +96,20 @@ async function check() {
 </template>
 
 <style scoped>
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
 .row-label {
   padding: 7px 16px 7px 0;
   font-size: 13px;

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 export const SORTS = [
   { key: 'tokens', label: 'Most tokens' },
   { key: 'recent', label: 'Most recent' },
+  { key: 'search', label: 'Search' },
 ]
 
 export function useSort(): {
