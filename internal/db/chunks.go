@@ -95,10 +95,7 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 
 	chunks := make([]SessionChunk, 0, len(msgs))
 	for _, m := range msgs {
-		chunk := buildChunk(m.msgType, m.ts, m.promptText, m.thinkingText,
-			m.inputTok, m.outputTok, m.cacheRead, m.tokensBefore, m.tokensAfter,
-			toolCallMap[m.uuid])
-		chunks = append(chunks, chunk)
+		chunks = append(chunks, buildChunk(m, toolCallMap[m.uuid]))
 	}
 	return chunks, nil
 }
@@ -158,44 +155,43 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 	return result, nil
 }
 
-func buildChunk(msgType, ts, promptText, thinkingText string,
-	inputTok, outputTok, cacheRead int, tokensBefore, tokensAfter *int,
-	tcs []ToolCallChunk) SessionChunk {
-
-	switch msgType {
+func buildChunk(m msgRow, tcs []ToolCallChunk) SessionChunk {
+	switch m.msgType {
 	case "user", "attachment":
-		return SessionChunk{Type: "user", Timestamp: ts, Text: promptText}
+		return SessionChunk{Type: "user", Timestamp: m.ts, Text: m.promptText}
 
 	case "assistant":
 		if tcs == nil {
 			tcs = []ToolCallChunk{}
 		}
-		attrib := computeAttrib(thinkingText, inputTok, tcs)
+		attrib := computeAttrib(m.thinkingText, m.inputTok, tcs)
 		return SessionChunk{
-			Type: "ai", Timestamp: ts,
-			Thinking: thinkingText, ToolCalls: tcs,
-			InputTokens: inputTok, OutputTokens: outputTok, CacheRead: cacheRead,
+			Type: "ai", Timestamp: m.ts,
+			Thinking: m.thinkingText, ToolCalls: tcs,
+			InputTokens: m.inputTok, OutputTokens: m.outputTok, CacheRead: m.cacheRead,
 			ContextAttrib: &attrib,
 		}
 
 	case "summary":
-		if tokensBefore != nil && tokensAfter != nil {
-			return SessionChunk{Type: "compact", Timestamp: ts,
-				TokensBefore: *tokensBefore, TokensAfter: *tokensAfter}
+		if m.tokensBefore != nil && m.tokensAfter != nil {
+			return SessionChunk{Type: "compact", Timestamp: m.ts,
+				TokensBefore: *m.tokensBefore, TokensAfter: *m.tokensAfter}
 		}
-		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
+		return SessionChunk{Type: "system", Timestamp: m.ts, Text: m.promptText}
 
 	case "system":
-		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
+		return SessionChunk{Type: "system", Timestamp: m.ts, Text: m.promptText}
 
 	default:
-		return SessionChunk{Type: "system", Timestamp: ts, Text: promptText}
+		return SessionChunk{Type: "system", Timestamp: m.ts, Text: m.promptText}
 	}
 }
 
-// legacyInputFields maps tool names to the field that extractTarget stored in
-// the target column. Used to reconstruct input_json for pre-migration rows.
-var legacyInputFields = map[string]string{
+// ToolInputFields maps tool names to the field inside their input object that
+// holds the human-readable "target" (file path, query, command, …). Used both
+// during ingestion to populate the target column and during query to reconstruct
+// input_json for pre-migration rows that have NULL input_json.
+var ToolInputFields = map[string]string{
 	"Read":      "file_path",
 	"Edit":      "file_path",
 	"Write":     "file_path",
@@ -211,7 +207,7 @@ var legacyInputFields = map[string]string{
 // synthesizeInput builds a minimal JSON input object from the target string
 // when input_json was not stored (pre-migration row).
 func synthesizeInput(toolName, target string) string {
-	field, ok := legacyInputFields[toolName]
+	field, ok := ToolInputFields[toolName]
 	if !ok {
 		field = "input"
 	}
@@ -248,10 +244,7 @@ func computeAttrib(thinking string, inputTok int, tcs []ToolCallChunk) ContextAt
 		toolOut += len(tc.Output) / 4
 	}
 	thinkTok := len(thinking) / 4
-	userText := inputTok - toolOut - thinkTok
-	if userText < 0 {
-		userText = 0
-	}
+	userText := max(inputTok-toolOut-thinkTok, 0)
 	return ContextAttrib{ToolOutput: toolOut, Thinking: thinkTok, UserText: userText}
 }
 

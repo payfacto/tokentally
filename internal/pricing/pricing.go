@@ -61,6 +61,8 @@ func tierFromModel(model string) string {
 	return ""
 }
 
+const tokensPerMillion = 1e6
+
 // CostFor returns the USD cost for a usage record.
 // It looks up the model directly; if not found, falls back to tier_fallback.
 // Returns nil if neither model nor tier rates are found.
@@ -79,10 +81,10 @@ func CostFor(model string, u Usage, p *Pricing, plan string) *float64 {
 			return nil
 		}
 	}
-	cost := float64(u.InputTokens)/1e6*rates.Input +
-		float64(u.OutputTokens)/1e6*rates.Output +
-		float64(u.CacheReadTokens)/1e6*rates.CacheRead +
-		float64(u.CacheCreate5mTokens)/1e6*rates.CacheCreate5m +
-		float64(u.CacheCreate1hTokens)/1e6*rates.CacheCreate1h
+	cost := float64(u.InputTokens)/tokensPerMillion*rates.Input +
+		float64(u.OutputTokens)/tokensPerMillion*rates.Output +
+		float64(u.CacheReadTokens)/tokensPerMillion*rates.CacheRead +
+		float64(u.CacheCreate5mTokens)/tokensPerMillion*rates.CacheCreate5m +
+		float64(u.CacheCreate1hTokens)/tokensPerMillion*rates.CacheCreate1h
 	return &cost
 }
