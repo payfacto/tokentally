@@ -27,6 +27,8 @@ export interface Chunk {
   contextAttrib?: ContextAttrib
   tokensBefore?: number
   tokensAfter?: number
+  msgType?: string    // "user" | "attachment" (hook)
+  isSidechain?: number // 1 = subagent turn
 }
 
 export function inputStr(input: Record<string, unknown>, key: string): string {
