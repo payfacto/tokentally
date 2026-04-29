@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,11 @@ const (
 	maxQueryLimit       = 1000
 	defaultPromptLimit  = 50
 	defaultSessionLimit = 20
+
+	overageScannerBufSize = 4 * 1024 * 1024 // 4 MiB — large enough for verbose stream-json lines
+
+	scanCooldown    = 5 * time.Second
+	refreshCooldown = 60 * time.Second
 )
 
 func clampLimit(limit, defaultVal int) int {
@@ -51,7 +58,6 @@ var defaultExchangeRates = map[string]float64{
 	"BRL": 5.75,
 }
 
-// supportedCurrencies lists the currencies we track exchange rates for.
 var supportedCurrencies = []string{"USD", "CAD", "EUR", "GBP", "AUD", "NZD", "CHF", "JPY", "MXN", "BRL"}
 
 // App is the Wails application struct — all exported methods are bound to the JS frontend.
@@ -62,6 +68,9 @@ type App struct {
 	pricingMu      sync.RWMutex
 	pricing        *pricing.Pricing // guarded by pricingMu; rebuilt from DB on every change
 	defaultPricing *pricing.Pricing // immutable seed from embedded pricing.json
+	rateMu         sync.Mutex
+	lastScan       time.Time
+	lastRefresh    time.Time
 }
 
 // New creates a new App. conn must already be open.
@@ -368,6 +377,9 @@ func (a *App) GetExchangeRates() (map[string]float64, error) {
 }
 
 func (a *App) SetExchangeRate(currency string, rate float64) error {
+	if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return fmt.Errorf("invalid rate: must be a positive finite number")
+	}
 	return db.SetExchangeRate(a.conn, currency, rate)
 }
 
@@ -381,6 +393,14 @@ func (a *App) SetExchangeApiKey(key string) error {
 
 // RefreshExchangeRates fetches live rates from exchangerate-api.com and stores them.
 func (a *App) RefreshExchangeRates() (map[string]float64, error) {
+	a.rateMu.Lock()
+	if time.Since(a.lastRefresh) < refreshCooldown {
+		a.rateMu.Unlock()
+		return nil, fmt.Errorf("rate refresh on cooldown: please wait before refreshing again")
+	}
+	a.lastRefresh = time.Now()
+	a.rateMu.Unlock()
+
 	key, err := db.GetExchangeApiKey(a.conn)
 	if err != nil {
 		return nil, err
@@ -437,6 +457,14 @@ func (a *App) ResetPricingToDefaults() error {
 }
 
 func (a *App) ScanNow() (scanner.ScanResult, error) {
+	a.rateMu.Lock()
+	if time.Since(a.lastScan) < scanCooldown {
+		a.rateMu.Unlock()
+		return scanner.ScanResult{}, fmt.Errorf("scan on cooldown: please wait a moment")
+	}
+	a.lastScan = time.Now()
+	a.rateMu.Unlock()
+
 	result, err := scanner.ScanDir(a.conn, a.projectsDir)
 	if err == nil && a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "scan", result)
@@ -477,6 +505,7 @@ func (a *App) SaveHTMLExport(html string, filename string) (string, error) {
 	if err != nil || path == "" {
 		return "", err
 	}
+	path = filepath.Clean(path)
 	if err := os.WriteFile(path, []byte(html), 0644); err != nil {
 		return "", fmt.Errorf("SaveHTMLExport: %w", err)
 	}
@@ -539,14 +568,14 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 		return OverageInfo{Error: err.Error()}, nil
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 4*1024*1024), 4*1024*1024)
+	lineScanner := bufio.NewScanner(stdout)
+	lineScanner.Buffer(make([]byte, 0, overageScannerBufSize), overageScannerBufSize)
 
 	var result OverageInfo
-	result.Error = "none"
+	var streamError string
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for lineScanner.Scan() {
+		line := lineScanner.Text()
 		if line == "" {
 			continue
 		}
@@ -558,7 +587,7 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 			result.RawOutput = append(result.RawOutput, line)
 		}
 		if sl.Error != "" {
-			result.Error = sl.Error
+			streamError = sl.Error
 		}
 		switch sl.Type {
 		case "assistant":
@@ -586,17 +615,15 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		result.Error = err.Error()
+	if err := lineScanner.Err(); err != nil {
+		streamError = err.Error()
 	}
 	cmd.Wait() //nolint:errcheck
-	if result.Error == "none" {
+	result.Error = streamError
+	if result.Error == "" {
 		if s := strings.TrimSpace(stderrBuf.String()); s != "" && !strings.Contains(strings.ToLower(s), "hook") {
 			result.Error = s
 		}
-	}
-	if result.Error == "none" {
-		result.Error = ""
 	}
 	return result, nil
 }
