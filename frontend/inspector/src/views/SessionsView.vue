@@ -18,7 +18,10 @@ const selectedId = computed(() =>
   route.params.id ? decodeURIComponent(route.params.id as string) : ''
 )
 
-const { data: sessions, refetch: refetchSessions } = useSessionList(range)
+const projectFilter = computed(() => (route.query.project as string) || '')
+const projectName = computed(() => (route.query.name as string) || projectFilter.value)
+
+const { data: sessions, refetch: refetchSessions } = useSessionList(range, projectFilter)
 const { data: chunks, visibleCount, isLoading, error, cancelReveal } = useSessionChunks(selectedId)
 
 function pick(session: Session) {
@@ -74,6 +77,10 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
           <option value="30d">30 days</option>
         </select>
         <span class="muted" style="font-size:11px">{{ sessions.length }} sessions</span>
+      </div>
+      <div v-if="projectFilter" class="project-filter-bar">
+        <span class="project-filter-label">{{ projectName }}</span>
+        <router-link to="/sessions" class="project-filter-clear" title="Clear filter">✕</router-link>
       </div>
       <div class="session-list">
         <div
@@ -157,4 +164,8 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 .btn-export { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; line-height: 1; transition: color 120ms, border-color 120ms; }
 .btn-export:hover { color: var(--text); border-color: var(--text); }
 .export-msg { margin-right: 8px; }
+.project-filter-bar { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--mono); }
+.project-filter-label { color: var(--accent, #e8956d); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.project-filter-clear { color: var(--muted); text-decoration: none; flex-shrink: 0; }
+.project-filter-clear:hover { color: var(--text); }
 </style>

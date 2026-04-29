@@ -345,7 +345,8 @@ SELECT project_slug,
        COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0)
          +COALESCE(SUM(cache_create_5m_tokens),0)
          +COALESCE(SUM(cache_create_1h_tokens),0) AS billable_tokens,
-       COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens
+       COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens,
+       MAX(timestamp) AS last_active
 FROM messages WHERE 1=1` + rng + `
 GROUP BY project_slug ORDER BY billable_tokens DESC`
 
@@ -372,14 +373,20 @@ GROUP BY project_slug ORDER BY billable_tokens DESC`
 }
 
 // RecentSessions returns sessions ordered by last activity, newest first.
-func RecentSessions(conn *sql.DB, limit int, since, until string) ([]map[string]any, error) {
+// Pass a non-empty projectSlug to restrict results to a single project.
+func RecentSessions(conn *sql.DB, limit int, since, until, projectSlug string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
+	slugClause := ""
+	if projectSlug != "" {
+		slugClause = " AND project_slug = ?"
+		args = append(args, projectSlug)
+	}
 	q := `
 SELECT session_id, project_slug,
        MIN(timestamp) AS started, MAX(timestamp) AS ended,
        SUM(CASE WHEN type='user' THEN 1 END) AS turns,
        COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0) AS tokens
-FROM messages WHERE 1=1` + rng + `
+FROM messages WHERE 1=1` + rng + slugClause + `
 GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 
 	rows, err := conn.Query(q, append(args, limit)...)
