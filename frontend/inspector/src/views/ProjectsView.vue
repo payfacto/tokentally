@@ -24,11 +24,6 @@ function cacheHitPct(r: ProjectRow): string {
   return ((r.cache_read_tokens / total) * 100).toFixed(0) + '%'
 }
 
-function fmtDate(ts: string): string {
-  if (!ts) return '—'
-  return ts.slice(0, 10)
-}
-
 onMounted(fetchRows)
 watch(() => store.lastScan, fetchRows)
 </script>
@@ -62,7 +57,7 @@ watch(() => store.lastScan, fetchRows)
             <td class="num">{{ fmt.int(r.billable_tokens) }}</td>
             <td class="num">{{ fmt.int(r.cache_read_tokens) }}</td>
             <td class="num">{{ cacheHitPct(r) }}</td>
-            <td class="num mono">{{ fmtDate(r.last_active) }}</td>
+            <td class="num mono">{{ fmt.date(r.last_active) }}</td>
           </tr>
           <tr v-if="!rows.length">
             <td colspan="7" class="muted">no projects</td>

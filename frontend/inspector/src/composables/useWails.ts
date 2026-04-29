@@ -32,7 +32,9 @@ function rangeToSince(range: string): string {
   return new Date(Date.now() - d * 86_400_000).toISOString()
 }
 
-export function useSessionList(range: Ref<string>, project?: Ref<string>) {
+export function useSessionList(range: Ref<string>, project?: Ref<string>): {
+  data: Ref<Session[]>; isLoading: Ref<boolean>; error: Ref<string | null>; refetch: () => Promise<void>
+} {
   const data = ref<Session[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
@@ -58,7 +60,10 @@ export function useSessionList(range: Ref<string>, project?: Ref<string>) {
   return { data, isLoading, error, refetch }
 }
 
-export function useSessionChunks(id: Ref<string>) {
+export function useSessionChunks(id: Ref<string>): {
+  data: Ref<Chunk[]>; visibleCount: Ref<number>; isLoading: Ref<boolean>
+  error: Ref<string | null>; refetch: () => Promise<void>; cancelReveal: () => void
+} {
   const data = ref<Chunk[]>([])
   const visibleCount = ref(20)
   const isLoading = ref(false)

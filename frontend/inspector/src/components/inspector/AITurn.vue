@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Chunk, ToolCallChunk } from '../../lib/types'
 import { copyMarkdown } from '../../lib/clipboard'
+import { fmt } from '../../lib/fmt'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ContextBadge from './ContextBadge.vue'
 import ToolCallFrame from './ToolCallFrame.vue'
@@ -15,12 +16,6 @@ import SubagentTree from './viewers/SubagentTree.vue'
 
 const props = defineProps<{ chunk: Chunk; depth?: number }>()
 
-const fmtTime = (ts: string) => new Date(ts).toLocaleTimeString()
-const fmtTok = (n?: number) => {
-  if (!n) return '0'
-  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-}
-
 function viewerFor(tc: ToolCallChunk) {
   if (tc.name === 'Read') return ReadViewer
   if (tc.name === 'Write') return WriteViewer
@@ -33,8 +28,8 @@ function viewerFor(tc: ToolCallChunk) {
 }
 
 function buildMarkdown(chunk: Chunk): string {
-  const ts = fmtTime(chunk.timestamp)
-  let md = `**Assistant** · ${ts}\n${fmtTok(chunk.inputTokens)} in · ${fmtTok(chunk.outputTokens)} out`
+  const ts = fmt.time(chunk.timestamp)
+  let md = `**Assistant** · ${ts}\n${fmt.tok(chunk.inputTokens)} in · ${fmt.tok(chunk.outputTokens)} out`
 
   if (chunk.thinking) {
     md += `\n\n<details><summary>Thinking</summary>\n\n${chunk.thinking}\n</details>`
@@ -58,7 +53,7 @@ function copyChunk(e: MouseEvent) {
   <div class="ai-turn">
     <div class="turn-header">
       <span class="badge sonnet" style="font-size:10px">claude</span>
-      <span class="muted" style="font-family:var(--mono);font-size:11px">{{ fmtTime(chunk.timestamp) }}</span>
+      <span class="muted" style="font-family:var(--mono);font-size:11px">{{ fmt.time(chunk.timestamp) }}</span>
       <span class="spacer" />
       <ContextBadge
         v-if="chunk.contextAttrib && chunk.inputTokens"
@@ -77,9 +72,9 @@ function copyChunk(e: MouseEvent) {
 
     <div class="turn-footer">
       <div class="token-row muted">
-        <span>in {{ fmtTok(chunk.inputTokens) }}</span>
-        <span>out {{ fmtTok(chunk.outputTokens) }}</span>
-        <span v-if="chunk.cacheRead">cache {{ fmtTok(chunk.cacheRead) }}</span>
+        <span>in {{ fmt.tok(chunk.inputTokens) }}</span>
+        <span>out {{ fmt.tok(chunk.outputTokens) }}</span>
+        <span v-if="chunk.cacheRead">cache {{ fmt.tok(chunk.cacheRead) }}</span>
       </div>
       <button class="copy-btn" title="Copy as Markdown" @click="copyChunk">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>

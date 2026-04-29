@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 export const SORTS = [
@@ -6,7 +6,11 @@ export const SORTS = [
   { key: 'recent', label: 'Most recent' },
 ]
 
-export function useSort() {
+export function useSort(): {
+  sort: ComputedRef<{ key: string; label: string }>
+  sortKey: ComputedRef<string>
+  setSort: (key: string) => void
+} {
   const route = useRoute()
   const router = useRouter()
 

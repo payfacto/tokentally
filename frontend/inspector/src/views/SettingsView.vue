@@ -19,35 +19,28 @@ const CURRENCIES = [
   { code: 'BRL', label: 'BRL — Brazilian Real' },
 ]
 
-// General
 const plans = ref<PlanEntry[]>([])
 const planMsg = ref('')
 const selectedPlan = ref('api')
 
-// Currency
 const currency = ref('CAD')
 const exchangeRate = ref(1.0)
 const rates = ref<Record<string, number>>({})
 const currencyMsg = ref('')
 
-// Exchange Rate API
 const apiKey = ref('')
 const ratesMsg = ref('')
 
-// Models
 const models = ref<ModelRate[]>([])
 
-// Data management
 const retentionDays = ref(0)
 const retentionMsg = ref('')
 const purgeMsg = ref('')
 const scanMsg = ref('')
 
-// Service
 const serviceStatus = ref('Checking…')
 const SERVICE_STATUS_DELAY = 1500
 
-// Modals
 interface ModelModalState {
   show: boolean; title: string; isEdit: boolean
   model_name: string; tier: string; input: number; output: number

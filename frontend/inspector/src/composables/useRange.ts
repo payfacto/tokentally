@@ -1,8 +1,12 @@
-import { computed } from 'vue'
+import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { RANGES } from '../lib/api'
 
-export function useRange() {
+export function useRange(): {
+  range: ComputedRef<{ key: string; label: string; days: number | null }>
+  rangeKey: ComputedRef<string>
+  setRange: (key: string) => void
+} {
   const route = useRoute()
   const router = useRouter()
 

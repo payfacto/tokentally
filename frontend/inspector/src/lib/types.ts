@@ -29,6 +29,11 @@ export interface Chunk {
   tokensAfter?: number
 }
 
+export function inputStr(input: Record<string, unknown>, key: string): string {
+  const v = input[key]
+  return typeof v === 'string' ? v : ''
+}
+
 export interface Session {
   session_id: string
   project_slug: string

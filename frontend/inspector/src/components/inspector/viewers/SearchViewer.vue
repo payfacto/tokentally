@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ToolCallChunk } from '../../../lib/types'
+import { inputStr } from '../../../lib/types'
 const props = defineProps<{ toolCall: ToolCallChunk }>()
-const pattern = () => (props.toolCall.input as Record<string, string>)?.pattern ?? (props.toolCall.input as Record<string, string>)?.query ?? ''
+const pattern = () => inputStr(props.toolCall.input, 'pattern') || inputStr(props.toolCall.input, 'query')
 const truncate = (s: string) => s.length > 2000 ? s.slice(0, 2000) + '\n…' : s
 </script>
 

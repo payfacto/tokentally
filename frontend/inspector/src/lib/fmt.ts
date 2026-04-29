@@ -35,5 +35,8 @@ export const fmt = {
     return ''
   },
   modelShort: (m: string | null | undefined): string => (m || '').replace('claude-', ''),
-  ts: (t: string | null | undefined): string => (t || '').slice(0, 16).replace('T', ' '),
+  ts:   (t: string | null | undefined): string => (t || '').slice(0, 16).replace('T', ' '),
+  date: (t: string | null | undefined): string => t ? t.slice(0, 10) : '—',
+  time: (t: string): string => new Date(t).toLocaleTimeString(),
+  tok:  (n?: number): string => !n ? '0' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n),
 }

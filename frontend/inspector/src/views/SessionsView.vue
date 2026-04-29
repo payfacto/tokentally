@@ -7,6 +7,7 @@ import SessionInspector from '../components/inspector/SessionInspector.vue'
 import type { Chunk, Session } from '../lib/types'
 import { generateSessionHTML } from '../lib/export'
 import type { SessionMeta } from '../lib/export'
+import { fmt } from '../lib/fmt'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,8 +40,6 @@ watch(() => store.lastScan, refetchSessions)
 const selectedSession = computed(() =>
   sessions.value.find((s: Session) => s.session_id === selectedId.value)
 )
-const fmtDate = (ts: string) => ts ? ts.slice(0, 10) : '—'
-const fmtTok = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
 
 const exportMsg = ref('')
 let exportTimer: ReturnType<typeof setTimeout> | undefined
@@ -53,7 +52,7 @@ async function exportHTML() {
     ended: chunks.value.at(-1)?.timestamp ?? '',
   }
   const html = generateSessionHTML(chunks.value, meta)
-  const dateStr = fmtDate(selectedSession.value?.started ?? '')
+  const dateStr = fmt.date(selectedSession.value?.started ?? '')
   const idPrefix = selectedId.value.slice(0, 8)
   const filename = `session-${idPrefix}-${dateStr}.html`
   const path = await window.go.app.App.SaveHTMLExport(html, filename)
@@ -92,8 +91,8 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
         >
           <div class="session-title">{{ s.project_name || s.session_id.slice(0, 8) }}</div>
           <div class="session-meta">
-            <span class="muted mono">{{ fmtTok(s.tokens) }} tok</span>
-            <span class="muted mono">{{ fmtDate(s.started) }}</span>
+            <span class="muted mono">{{ fmt.tok(s.tokens) }} tok</span>
+            <span class="muted mono">{{ fmt.date(s.started) }}</span>
           </div>
           <div class="muted" style="font-size:10px;font-family:var(--mono)">{{ s.session_id.slice(0, 8) }}</div>
         </div>
@@ -118,7 +117,7 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
             {{ selectedId.slice(0, 8) }}
           </span>
           <span v-if="selectedSession" class="muted" style="font-size:11px;font-family:var(--mono);margin-left:12px">
-            {{ fmtTok(selectedSession.tokens) }} tokens · {{ fmtDate(selectedSession.started) }}
+            {{ fmt.tok(selectedSession.tokens) }} tokens · {{ fmt.date(selectedSession.started) }}
           </span>
           <span class="spacer" />
           <span v-if="exportMsg" class="export-msg muted" style="font-size:11px;font-family:var(--mono)">{{ exportMsg }}</span>
