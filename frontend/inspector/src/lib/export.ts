@@ -1,4 +1,5 @@
 import type { Chunk, ToolCallChunk } from './types'
+import { fmt } from './fmt'
 
 export interface SessionMeta {
   sessionId: string
@@ -7,30 +8,12 @@ export interface SessionMeta {
   ended: string
 }
 
-function escHtml(s: string): string {
-  return (s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function fmtTok(n?: number): string {
-  if (!n) return '0'
-  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-}
-
-function fmtDate(ts: string): string {
-  return ts ? ts.slice(0, 16).replace('T', ' ') : '—'
-}
-
 function renderToolCall(tc: ToolCallChunk): string {
-  const inputStr = escHtml(JSON.stringify(tc.input, null, 2))
-  const outputStr = escHtml(tc.output ?? '')
+  const inputStr = fmt.htmlSafe(JSON.stringify(tc.input, null, 2))
+  const outputStr = fmt.htmlSafe(tc.output ?? '')
   const errorBadge = tc.isError ? '<span class="error-badge">⚠ Error</span> ' : ''
   return `<div class="tool-call">
-  <div class="tool-name">⚙ ${escHtml(tc.name)}</div>
+  <div class="tool-name">⚙ ${fmt.htmlSafe(tc.name)}</div>
   <pre class="tool-pre">${inputStr}</pre>
   <div class="tool-output-label">${errorBadge}Output</div>
   <pre class="tool-pre">${outputStr}</pre>
@@ -43,27 +26,27 @@ function renderChunk(chunk: Chunk): string {
     case 'user':
       return `<div class="turn user-turn">
   <div class="turn-header"><span class="badge">you</span><span class="ts">${ts}</span></div>
-  <div class="turn-text">${escHtml(chunk.text ?? '')}</div>
+  <div class="turn-text">${fmt.htmlSafe(chunk.text ?? '')}</div>
 </div>`
 
     case 'ai': {
       const thinking = chunk.thinking
-        ? `<details class="thinking"><summary>Thinking</summary><pre>${escHtml(chunk.thinking)}</pre></details>`
+        ? `<details class="thinking"><summary>Thinking</summary><pre>${fmt.htmlSafe(chunk.thinking)}</pre></details>`
         : ''
       const tools = (chunk.toolCalls ?? []).map(renderToolCall).join('\n')
       return `<div class="turn ai-turn">
   <div class="turn-header"><span class="badge ai-badge">claude</span><span class="ts">${ts}</span></div>
   ${thinking}
   ${tools}
-  <div class="token-row">${fmtTok(chunk.inputTokens)} in · ${fmtTok(chunk.outputTokens)} out${chunk.cacheRead ? ` · ${fmtTok(chunk.cacheRead)} cache` : ''}</div>
+  <div class="token-row">${fmt.tok(chunk.inputTokens)} in · ${fmt.tok(chunk.outputTokens)} out${chunk.cacheRead ? ` · ${fmt.tok(chunk.cacheRead)} cache` : ''}</div>
 </div>`
     }
 
     case 'compact':
-      return `<div class="compact-boundary">⚡ Context compacted — ${fmtTok(chunk.tokensBefore)} → ${fmtTok(chunk.tokensAfter)} tokens</div>`
+      return `<div class="compact-boundary">⚡ Context compacted — ${fmt.tok(chunk.tokensBefore)} → ${fmt.tok(chunk.tokensAfter)} tokens</div>`
 
     case 'system':
-      return `<div class="turn system-turn"><span class="system-label">system</span> ${escHtml(chunk.text ?? '')}</div>`
+      return `<div class="turn system-turn"><span class="system-label">system</span> ${fmt.htmlSafe(chunk.text ?? '')}</div>`
 
     default:
       return ''
@@ -102,7 +85,7 @@ main{max-width:860px;margin:0 auto}
 export function generateSessionHTML(chunks: Chunk[], meta: SessionMeta): string {
   const totalIn = chunks.reduce((s, c) => s + (c.inputTokens ?? 0), 0)
   const totalOut = chunks.reduce((s, c) => s + (c.outputTokens ?? 0), 0)
-  const title = escHtml(meta.projectName || meta.sessionId.slice(0, 8))
+  const title = fmt.htmlSafe(meta.projectName || meta.sessionId.slice(0, 8))
   const body = chunks.map(renderChunk).join('\n')
 
   return `<!DOCTYPE html>
@@ -117,9 +100,9 @@ export function generateSessionHTML(chunks: Chunk[], meta: SessionMeta): string 
   <header>
     <h1>${title}</h1>
     <div class="meta">
-      <span>${escHtml(meta.sessionId.slice(0, 8))}</span>
-      <span>${fmtDate(meta.started)} → ${fmtDate(meta.ended)}</span>
-      <span>${fmtTok(totalIn)} in · ${fmtTok(totalOut)} out</span>
+      <span>${fmt.htmlSafe(meta.sessionId.slice(0, 8))}</span>
+      <span>${fmt.ts(meta.started) || '—'} → ${fmt.ts(meta.ended) || '—'}</span>
+      <span>${fmt.tok(totalIn)} in · ${fmt.tok(totalOut)} out</span>
     </div>
   </header>
   <main>

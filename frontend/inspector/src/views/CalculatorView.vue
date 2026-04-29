@@ -43,6 +43,7 @@ function fmtNum(n: number): string {
   return n.toLocaleString()
 }
 
+const TOKENS_PER_MILLION = TOKENS_PER_MILLION
 const COST_DECIMALS = 4
 
 function fmtCurrency(amount: number, decimals = COST_DECIMALS): string {
@@ -64,11 +65,11 @@ function roundTo(n: number, decimals: number): number {
 }
 
 function inputCostUSD(m: ModelRate): number {
-  return (stats.value.tokenCount / 1_000_000) * m.input
+  return (stats.value.tokenCount / TOKENS_PER_MILLION) * m.input
 }
 
 function outputCostUSD(m: ModelRate): number {
-  return (stats.value.tokenCount / 1_000_000) * m.output
+  return (stats.value.tokenCount / TOKENS_PER_MILLION) * m.output
 }
 
 // Sum the two values after rounding to display precision so total always

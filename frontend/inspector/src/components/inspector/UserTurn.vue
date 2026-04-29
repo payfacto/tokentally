@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { Chunk } from '../../lib/types'
 import { copyMarkdown } from '../../lib/clipboard'
+import { fmt } from '../../lib/fmt'
 
 const props = defineProps<{ chunk: Chunk }>()
-const fmtTime = (ts: string) => new Date(ts).toLocaleTimeString()
 
 function copyChunk(e: MouseEvent) {
-  const md = `**User** · ${fmtTime(props.chunk.timestamp)}\n\n${props.chunk.text ?? ''}`
+  const md = `**User** · ${fmt.time(props.chunk.timestamp)}\n\n${props.chunk.text ?? ''}`
   copyMarkdown(md, e.currentTarget as HTMLElement)
 }
 </script>
@@ -15,7 +15,7 @@ function copyChunk(e: MouseEvent) {
   <div class="user-turn">
     <div class="turn-header">
       <span class="badge" style="font-size:10px">you</span>
-      <span class="muted" style="font-family:var(--mono);font-size:11px">{{ fmtTime(chunk.timestamp) }}</span>
+      <span class="muted" style="font-family:var(--mono);font-size:11px">{{ fmt.time(chunk.timestamp) }}</span>
     </div>
     <div class="turn-text">{{ chunk.text }}</div>
     <button class="copy-btn" title="Copy as Markdown" @click="copyChunk">

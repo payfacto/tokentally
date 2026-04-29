@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { ToolCallChunk } from '../../../lib/types'
+import { inputStr } from '../../../lib/types'
 const props = defineProps<{ toolCall: ToolCallChunk }>()
-const path = () => (props.toolCall.input as Record<string, string>)?.file_path ?? ''
-const oldStr = () => (props.toolCall.input as Record<string, string>)?.old_string ?? ''
-const newStr = () => (props.toolCall.input as Record<string, string>)?.new_string ?? ''
+const path = () => inputStr(props.toolCall.input, 'file_path')
+const oldStr = () => inputStr(props.toolCall.input, 'old_string')
+const newStr = () => inputStr(props.toolCall.input, 'new_string')
 </script>
 
 <template>

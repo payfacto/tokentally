@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { ToolCallChunk } from '../../lib/types'
+import { inputStr } from '../../lib/types'
 
 const props = defineProps<{ toolCall: ToolCallChunk }>()
 const expanded = ref(true)
@@ -20,10 +21,12 @@ const fmtDuration = (ms?: number) => {
   return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'
 }
 
-const targetLabel = computed(() => {
-  const i = props.toolCall.input as Record<string, string>
-  return i?.file_path || i?.command || i?.url || i?.pattern || ''
-})
+const targetLabel = computed(() =>
+  inputStr(props.toolCall.input, 'file_path') ||
+  inputStr(props.toolCall.input, 'command') ||
+  inputStr(props.toolCall.input, 'url') ||
+  inputStr(props.toolCall.input, 'pattern')
+)
 </script>
 
 <template>

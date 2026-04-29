@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { fmt } from '../lib/fmt'
 
 interface OverageInfo {
   model: string
@@ -15,15 +16,6 @@ interface OverageInfo {
 const info = ref<OverageInfo | null>(null)
 const loading = ref(false)
 const fetchError = ref<string | null>(null)
-
-function modelClass(m: string): string {
-  if (!m) return ''
-  const l = m.toLowerCase()
-  if (l.includes('opus'))   return 'badge-opus'
-  if (l.includes('sonnet')) return 'badge-sonnet'
-  if (l.includes('haiku'))  return 'badge-haiku'
-  return 'badge-other'
-}
 
 async function check() {
   loading.value = true
@@ -59,7 +51,7 @@ async function check() {
           <tr>
             <td class="row-label">Model</td>
             <td class="row-value">
-              <span v-if="info.model" :class="'badge ' + modelClass(info.model)">{{ info.model }}</span>
+              <span v-if="info.model" :class="'badge ' + fmt.modelClass(info.model)">{{ info.model }}</span>
               <span v-else class="muted">—</span>
             </td>
           </tr>

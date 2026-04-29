@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ToolCallChunk } from '../../../lib/types'
+import { inputStr } from '../../../lib/types'
 const props = defineProps<{ toolCall: ToolCallChunk }>()
-const path = () => (props.toolCall.input as Record<string, string>)?.file_path ?? ''
-const content = () => (props.toolCall.input as Record<string, string>)?.content ?? ''
+const path = () => inputStr(props.toolCall.input, 'file_path')
+const content = () => inputStr(props.toolCall.input, 'content')
 const truncate = (s: string) => s.length > 3000 ? s.slice(0, 3000) + '\n…' : s
 </script>
 
