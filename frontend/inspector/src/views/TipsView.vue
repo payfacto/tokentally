@@ -10,7 +10,7 @@ interface TipRow { key: string; title: string; body: string }
 const tips = ref<TipRow[]>([])
 
 async function fetchTips() {
-  tips.value = ((await api('/api/tips')) ?? []) as TipRow[]
+  tips.value = (await api<TipRow[]>('/api/tips')) ?? []
 }
 
 async function dismiss(key: string) {

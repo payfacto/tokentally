@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type { Chunk } from '../../lib/types'
 import { copyMarkdown } from '../../lib/clipboard'
+import { fmt } from '../../lib/fmt'
 
 const props = defineProps<{ chunk: Chunk }>()
-const fmtTok = (n?: number) => n ? (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)) : '?'
 
 function copyChunk(e: MouseEvent) {
-  const md = `**Context compacted** · ${fmtTok(props.chunk.tokensBefore)} → ${fmtTok(props.chunk.tokensAfter)} tokens`
-  copyMarkdown(md, e.currentTarget as HTMLElement)
+  if (!(e.currentTarget instanceof HTMLElement)) return
+  const md = `**Context compacted** · ${fmt.tok(props.chunk.tokensBefore)} → ${fmt.tok(props.chunk.tokensAfter)} tokens`
+  copyMarkdown(md, e.currentTarget)
 }
 </script>
 
@@ -15,7 +16,7 @@ function copyChunk(e: MouseEvent) {
   <div class="compact-boundary">
     <div class="compact-line" />
     <div class="compact-label">
-      ⚡ Context compacted — {{ fmtTok(chunk.tokensBefore) }} → {{ fmtTok(chunk.tokensAfter) }} tokens
+      ⚡ Context compacted — {{ fmt.tok(chunk.tokensBefore) }} → {{ fmt.tok(chunk.tokensAfter) }} tokens
     </div>
     <div class="compact-line" />
     <button class="copy-btn" title="Copy as Markdown" @click="copyChunk">

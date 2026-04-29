@@ -37,22 +37,22 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/scan':     (_)  => App().ScanNow(),
 }
 
-export async function api(path: string, opts?: { method: string; body: string }): Promise<unknown> {
+export async function api<T = unknown>(path: string, opts?: { method: string; body: string }): Promise<T> {
   const [base, search] = path.split('?')
   const qs = Object.fromEntries(new URLSearchParams(search || ''))
 
   if (base.startsWith('/api/sessions/')) {
     const sid = base.split('/').pop() || ''
-    return App().GetSessionChunks(decodeURIComponent(sid))
+    return (await App().GetSessionChunks(decodeURIComponent(sid))) as unknown as T
   }
 
   if (opts?.method === 'POST') {
     const body = JSON.parse(opts.body || '{}')
-    if (base === '/api/tips/dismiss') return App().DismissTip(body.key || '')
-    if (base === '/api/plan') return App().SetPlan(body.plan || '')
+    if (base === '/api/tips/dismiss') { await App().DismissTip(body.key || ''); return undefined as unknown as T }
+    if (base === '/api/plan') { await App().SetPlan(body.plan || ''); return undefined as unknown as T }
   }
 
   const handler = apiMap[base]
   if (!handler) throw new Error(`No binding for ${base}`)
-  return handler(qs)
+  return (await handler(qs)) as T
 }

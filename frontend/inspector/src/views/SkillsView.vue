@@ -25,7 +25,7 @@ const totalInvocations = computed(() => skills.value.reduce((s, r) => s + r.invo
 async function fetchAll() {
   const since = sinceIso(range.value)
   const url = '/api/skills' + (since ? '?since=' + encodeURIComponent(since) : '')
-  skills.value = (await api(url)) as SkillRow[]
+  skills.value = await api<SkillRow[]>(url)
   await nextTick()
   if (chSkills.value) {
     const top = skills.value.slice(0, TOP_SKILLS_LIMIT)

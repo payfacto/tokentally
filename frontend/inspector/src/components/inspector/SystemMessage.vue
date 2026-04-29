@@ -5,9 +5,10 @@ import { copyMarkdown } from '../../lib/clipboard'
 const props = defineProps<{ chunk: Chunk }>()
 
 function copyChunk(e: MouseEvent) {
+  if (!(e.currentTarget instanceof HTMLElement)) return
   const ts = props.chunk.timestamp.slice(11, 19)
   const md = `**System** · ${ts}\n\n${props.chunk.text ?? ''}`
-  copyMarkdown(md, e.currentTarget as HTMLElement)
+  copyMarkdown(md, e.currentTarget)
 }
 </script>
 

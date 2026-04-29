@@ -11,7 +11,7 @@ const models = ref<ModelRate[]>([])
 
 onMounted(async () => {
   try {
-    models.value = (await window.go.app.App.GetPricingModels()) as ModelRate[]
+    models.value = await window.go.app.App.GetPricingModels()
   } catch { /* not in Wails env */ }
 })
 
@@ -43,7 +43,7 @@ function fmtNum(n: number): string {
   return n.toLocaleString()
 }
 
-const TOKENS_PER_MILLION = TOKENS_PER_MILLION
+const TOKENS_PER_MILLION = 1_000_000
 const COST_DECIMALS = 4
 
 function fmtCurrency(amount: number, decimals = COST_DECIMALS): string {

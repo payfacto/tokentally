@@ -6,8 +6,8 @@ export const useAppStore = defineStore('app', {
     plan: 'api' as string,
     pricing: null as Pricing | null,
     currency: 'CAD' as string,
-    exchangeRate: 1.0 as number,
-    lastScan: 0 as number,
+    exchangeRate: 1.0,
+    lastScan: 0,
   }),
   actions: {
     recordScan() {

@@ -6,8 +6,9 @@ import { fmt } from '../../lib/fmt'
 const props = defineProps<{ chunk: Chunk }>()
 
 function copyChunk(e: MouseEvent) {
+  if (!(e.currentTarget instanceof HTMLElement)) return
   const md = `**User** · ${fmt.time(props.chunk.timestamp)}\n\n${props.chunk.text ?? ''}`
-  copyMarkdown(md, e.currentTarget as HTMLElement)
+  copyMarkdown(md, e.currentTarget)
 }
 </script>
 

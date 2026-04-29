@@ -31,7 +31,7 @@ function prettyPrompt(text: string): string {
 }
 
 async function fetchRows() {
-  rows.value = (await api('/api/prompts?limit=100&sort=' + encodeURIComponent(sort.value.key))) as PromptRow[]
+  rows.value = await api<PromptRow[]>('/api/prompts?limit=100&sort=' + encodeURIComponent(sort.value.key))
 }
 
 async function copyPrompt() {

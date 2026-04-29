@@ -1,5 +1,5 @@
 import type { Chunk, Session } from './lib/types'
-import type { PlanResponse } from './composables/useWails'
+import type { ModelRate, PlanEntry, PlanResponse, ServiceStatus, ScanResult } from './composables/useWails'
 
 declare global {
   interface Window {
@@ -21,13 +21,13 @@ declare global {
           GetSkills(since: string, until: string): Promise<unknown[]>
           GetTips(): Promise<unknown[]>
           DismissTip(key: string): Promise<void>
-          ScanNow(): Promise<unknown>
+          ScanNow(): Promise<ScanResult>
           // Plan
           GetPlan(): Promise<PlanResponse>
           SetPlan(plan: string): Promise<void>
           // Settings — pricing
-          GetPricingModels(): Promise<unknown[]>
-          GetPricingPlans(): Promise<unknown[]>
+          GetPricingModels(): Promise<ModelRate[]>
+          GetPricingPlans(): Promise<PlanEntry[]>
           ResetPricingToDefaults(): Promise<void>
           UpsertPricingModel(
             name: string, tier: string, input: number, output: number,
@@ -49,7 +49,7 @@ declare global {
           SetRetentionDays(days: number): Promise<void>
           PurgeOlderThan(days: number): Promise<number>
           // Settings — service
-          GetServiceStatus(): Promise<unknown>
+          GetServiceStatus(): Promise<ServiceStatus>
           InstallService(): Promise<void>
           UninstallService(): Promise<void>
         }

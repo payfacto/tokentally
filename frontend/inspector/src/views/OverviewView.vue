@@ -24,11 +24,20 @@ interface ByModelRow {
   cache_create_5m_tokens: number
   cache_create_1h_tokens: number
 }
+interface ProjectRow {
+  project_slug: string; project_name: string
+  input_tokens: number; output_tokens: number
+}
+interface SessionRow {
+  session_id: string; started: string; tokens: number
+  project_slug: string; project_name: string
+}
+interface ToolRow { tool_name: string; calls: number }
 
-const totals  = ref<Record<string, number>>({})
-const projects = ref<Array<Record<string, unknown>>>([])
-const sessions = ref<Array<Record<string, unknown>>>([])
-const tools    = ref<Array<Record<string, unknown>>>([])
+const totals   = ref<Record<string, number>>({})
+const projects = ref<ProjectRow[]>([])
+const sessions = ref<SessionRow[]>([])
+const tools    = ref<ToolRow[]>([])
 const daily    = ref<DailyRow[]>([])
 const byModel  = ref<ByModelRow[]>([])
 
@@ -43,19 +52,19 @@ const TOP_CHART_LIMIT = 8
 async function fetchAll() {
   const since = sinceIso(range.value)
   const [t, p, s, tl, d, bm] = await Promise.all([
-    api(withSince('/api/overview', since)),
-    api(withSince('/api/projects', since)),
-    api(withSince('/api/sessions?limit=10', since)),
-    api(withSince('/api/tools', since)),
-    api(withSince('/api/daily', since)),
-    api(withSince('/api/by-model', since)),
+    api<Record<string, number>>(withSince('/api/overview', since)),
+    api<ProjectRow[]>(withSince('/api/projects', since)),
+    api<SessionRow[]>(withSince('/api/sessions?limit=10', since)),
+    api<ToolRow[]>(withSince('/api/tools', since)),
+    api<DailyRow[]>(withSince('/api/daily', since)),
+    api<ByModelRow[]>(withSince('/api/by-model', since)),
   ])
-  totals.value   = t as Record<string, number>
-  projects.value = p as Array<Record<string, unknown>>
-  sessions.value = s as Array<Record<string, unknown>>
-  tools.value    = tl as Array<Record<string, unknown>>
-  daily.value    = d as DailyRow[]
-  byModel.value  = bm as ByModelRow[]
+  totals.value   = t
+  projects.value = p
+  sessions.value = s
+  tools.value    = tl
+  daily.value    = d
+  byModel.value  = bm
   await nextTick()
   renderCharts()
 }
@@ -94,20 +103,20 @@ function renderCharts() {
   if (chProjects.value && topProjects.length) {
     groupedBarChart(chProjects.value, {
       categories: topProjects.map(p => {
-        const name = (p.project_name || p.project_slug) as string
+        const name = p.project_name || p.project_slug
         return name.length > 20 ? name.slice(0, 19) + '…' : name
       }),
       series: [
-        { name: 'input',  values: topProjects.map(p => (p.input_tokens  as number) || 0), color: '#eb733b' },
-        { name: 'output', values: topProjects.map(p => (p.output_tokens as number) || 0), color: '#4ab0c0' },
+        { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#eb733b' },
+        { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#4ab0c0' },
       ],
     })
   }
   const topTools = tools.value.slice(0, TOP_CHART_LIMIT)
   if (chTools.value && topTools.length) {
     barChart(chTools.value, {
-      categories: topTools.map(t => t.tool_name as string),
-      values: topTools.map(t => t.calls as number),
+      categories: topTools.map(t => t.tool_name),
+      values: topTools.map(t => t.calls),
       color: '#b04e20',
     })
   }
@@ -226,10 +235,10 @@ watch([rangeKey, () => store.lastScan], fetchAll)
         <table>
           <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
           <tbody>
-            <tr v-for="s in sessions" :key="(s.session_id as string)">
-              <td class="mono">{{ fmt.ts(s.started as string) }}</td>
-              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id as string)">{{ (s.project_name || s.project_slug) as string }}</RouterLink></td>
-              <td class="num">{{ fmt.compact(s.tokens as number) }}</td>
+            <tr v-for="s in sessions" :key="s.session_id">
+              <td class="mono">{{ fmt.ts(s.started) }}</td>
+              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id)">{{ s.project_name || s.project_slug }}</RouterLink></td>
+              <td class="num">{{ fmt.compact(s.tokens) }}</td>
             </tr>
             <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>
           </tbody>

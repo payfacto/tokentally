@@ -45,7 +45,8 @@ function buildMarkdown(chunk: Chunk): string {
 }
 
 function copyChunk(e: MouseEvent) {
-  copyMarkdown(buildMarkdown(props.chunk), e.currentTarget as HTMLElement)
+  if (!(e.currentTarget instanceof HTMLElement)) return
+  copyMarkdown(buildMarkdown(props.chunk), e.currentTarget)
 }
 </script>
 
