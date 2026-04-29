@@ -22,6 +22,8 @@ type SessionChunk struct {
 	ContextAttrib *ContextAttrib  `json:"contextAttrib,omitempty"`
 	TokensBefore  int             `json:"tokensBefore,omitempty"`
 	TokensAfter   int             `json:"tokensAfter,omitempty"`
+	MsgType       string          `json:"msgType,omitempty"`   // raw DB type: "user"|"attachment"
+	IsSidechain   int             `json:"isSidechain,omitempty"` // 1 = subagent turn
 }
 
 // ToolCallChunk represents one tool invocation within an AI turn.
@@ -48,6 +50,7 @@ type msgRow struct {
 	uuid, msgType, ts, promptText, thinkingText string
 	inputTok, outputTok, cacheRead              int
 	tokensBefore, tokensAfter                   *int
+	isSidechain                                 int
 }
 
 // GetSessionChunks reconstructs a session as []SessionChunk from the messages
@@ -58,7 +61,8 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 		SELECT uuid, type, timestamp,
 		       COALESCE(prompt_text,''), COALESCE(thinking_text,''),
 		       COALESCE(input_tokens,0), COALESCE(output_tokens,0), COALESCE(cache_read_tokens,0),
-		       tokens_before, tokens_after
+		       tokens_before, tokens_after,
+		       COALESCE(is_sidechain,0)
 		FROM messages WHERE session_id = ? ORDER BY timestamp ASC`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("GetSessionChunks: %w", err)
@@ -68,7 +72,8 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 	for rows.Next() {
 		var m msgRow
 		if err := rows.Scan(&m.uuid, &m.msgType, &m.ts, &m.promptText, &m.thinkingText,
-			&m.inputTok, &m.outputTok, &m.cacheRead, &m.tokensBefore, &m.tokensAfter); err != nil {
+			&m.inputTok, &m.outputTok, &m.cacheRead, &m.tokensBefore, &m.tokensAfter,
+			&m.isSidechain); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("GetSessionChunks scan: %w", err)
 		}
@@ -158,7 +163,8 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 func buildChunk(m msgRow, tcs []ToolCallChunk) SessionChunk {
 	switch m.msgType {
 	case "user", "attachment":
-		return SessionChunk{Type: "user", Timestamp: m.ts, Text: m.promptText}
+		return SessionChunk{Type: "user", Timestamp: m.ts, Text: m.promptText,
+			MsgType: m.msgType, IsSidechain: m.isSidechain}
 
 	case "assistant":
 		if tcs == nil {
@@ -238,12 +244,14 @@ func enrichSubagent(tc *ToolCallChunk, outputText, inputJSON string) {
 	}
 }
 
+const charsPerToken = 4
+
 func computeAttrib(thinking string, inputTok int, tcs []ToolCallChunk) ContextAttrib {
 	toolOut := 0
 	for _, tc := range tcs {
-		toolOut += len(tc.Output) / 4
+		toolOut += len(tc.Output) / charsPerToken
 	}
-	thinkTok := len(thinking) / 4
+	thinkTok := len(thinking) / charsPerToken
 	userText := max(inputTok-toolOut-thinkTok, 0)
 	return ContextAttrib{ToolOutput: toolOut, Thinking: thinkTok, UserText: userText}
 }

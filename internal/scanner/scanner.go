@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,19 @@ import (
 	"tokentally/internal/db"
 	"tokentally/internal/skills"
 )
+
+const (
+	nanosPerSec      = 1e9 // time.Now().UnixNano() → seconds for file mtime storage
+	goshedEveryNLines = 200 // yield to other goroutines during large file scans
+)
+
+// dbExec is satisfied by both *sql.DB and *sql.Tx, allowing scanner helpers
+// to run inside or outside a transaction without duplicating code.
+type dbExec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
 
 // ScanResult summarises one call to ScanDir.
 type ScanResult struct {
@@ -140,7 +154,7 @@ func ScanDir(conn *sql.DB, projectsDir string) (ScanResult, error) {
 			return fmt.Errorf("loadFileState %s: %w", path, err)
 		}
 
-		currentMtime := float64(info.ModTime().UnixNano()) / 1e9
+		currentMtime := float64(info.ModTime().UnixNano()) / nanosPerSec
 		if state != nil && state.mtime == currentMtime && state.bytesRead == info.Size() {
 			return nil // nothing new
 		}
@@ -180,6 +194,8 @@ type scanFileResult struct {
 
 // scanFile reads new JSONL lines from path starting at startByte.
 // It stops at a partial (newline-less) line to preserve partial-flush safety.
+// All inserts for the file are batched inside a single transaction — this
+// collapses what would otherwise be thousands of individual WAL writes into one.
 func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFileResult, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -193,14 +209,20 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 		}
 	}
 
+	tx, err := conn.Begin()
+	if err != nil {
+		return scanFileResult{endOffset: startByte}, fmt.Errorf("scanFile begin tx: %w", err)
+	}
+
 	var result scanFileResult
 	result.endOffset = startByte
 
 	reader := bufio.NewReader(f)
 	lineStart := startByte
+	lineCount := 0
 
 	for {
-		raw, err := reader.ReadBytes('\n')
+		raw, readErr := reader.ReadBytes('\n')
 		if len(raw) == 0 {
 			break
 		}
@@ -212,7 +234,7 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 			break
 		}
 
-		msgs, tools, parseErr := processLine(conn, raw, projectSlug)
+		msgs, tools, parseErr := processLine(tx, conn, raw, projectSlug)
 		if parseErr == nil {
 			result.messages += msgs
 			result.tools += tools
@@ -221,17 +243,29 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 		result.endOffset = lineEnd
 		lineStart = lineEnd
 
-		if err != nil {
+		// Yield every 200 lines so other goroutines (UI, tray) can run.
+		lineCount++
+		if lineCount%goshedEveryNLines == 0 {
+			runtime.Gosched()
+		}
+
+		if readErr != nil {
 			break // EOF after a complete line
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return scanFileResult{endOffset: startByte}, fmt.Errorf("scanFile commit: %w", err)
+	}
 	return result, nil
 }
 
 // processLine parses one JSONL line and inserts a message + tool rows.
+// tx is used for all main table writes; conn is used for best-effort
+// skill-size metadata which is intentionally outside the file transaction.
 // Returns (messagesInserted, toolsInserted, error).
-func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
+func processLine(tx dbExec, conn *sql.DB, raw []byte, slug string) (int, int, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return 0, 0, nil
@@ -250,28 +284,28 @@ func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
 		return 0, 0, err
 	}
 
-	if err := insertMessage(conn, msg); err != nil {
+	if err := insertMessage(tx, msg); err != nil {
 		return 0, 0, fmt.Errorf("insertMessage: %w", err)
 	}
 
 	// Clear stale tool rows so full rescans stay idempotent.
-	if _, err := conn.Exec(`DELETE FROM tool_calls WHERE message_uuid=?`, rec.UUID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM tool_calls WHERE message_uuid=?`, rec.UUID); err != nil {
 		return 0, 0, fmt.Errorf("delete old tool_calls: %w", err)
 	}
 
 	for _, tc := range tlist {
-		if err := insertToolCall(conn, rec.UUID, rec.SessionID, slug, rec.Timestamp, tc); err != nil {
+		if err := insertToolCall(tx, rec.UUID, rec.SessionID, slug, rec.Timestamp, tc); err != nil {
 			return 0, 0, fmt.Errorf("insertToolCall: %w", err)
 		}
 		if tc.toolName == "Skill" && tc.target != "" {
 			if b, ok := skills.Bytes(tc.target); ok {
-				_ = db.UpsertSkillSize(conn, tc.target, b)
+				_ = db.UpsertSkillSize(conn, tc.target, b) // best-effort, outside file tx
 			}
 		}
 	}
 
 	// Pair tool results back to their originating tool_use rows (best-effort).
-	pairToolResults(conn, rec.SessionID, rec.Timestamp, tlist)
+	pairToolResults(tx, rec.SessionID, rec.Timestamp, tlist)
 
 	return 1, len(tlist), nil
 }
@@ -579,26 +613,14 @@ func extractAttr(s, name string) string {
 
 // pairToolResults updates tool_calls rows (tool_use entries) with the output text,
 // error flag, and duration from the matching tool_result block in a user message.
-// Updates are batched in a single transaction to avoid per-row fsyncs.
+// Runs within the caller's transaction — no inner Begin/Commit needed.
 // Errors are best-effort and do not abort the scan.
-func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []toolCall) {
-	// Collect only the _tool_result entries to avoid opening a tx unnecessarily.
-	var pairs []toolCall
+func pairToolResults(conn dbExec, sessionID, userTimestamp string, results []toolCall) {
 	for _, r := range results {
-		if r.toolName == "_tool_result" {
-			pairs = append(pairs, r)
+		if r.toolName != "_tool_result" {
+			continue
 		}
-	}
-	if len(pairs) == 0 {
-		return
-	}
-
-	tx, err := conn.Begin()
-	if err != nil {
-		return
-	}
-	for _, r := range pairs {
-		tx.Exec( //nolint:errcheck
+		conn.Exec( //nolint:errcheck
 			`UPDATE tool_calls
 			SET output_text = ?,
 			    is_error = ?,
@@ -609,7 +631,6 @@ func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []to
 			r.outputText, r.isError, userTimestamp, r.target, sessionID,
 		)
 	}
-	tx.Commit() //nolint:errcheck
 }
 
 // extractTarget resolves the "target" field from a tool's input object.
@@ -660,7 +681,7 @@ func buildToolCallsJSON(tools []toolCall) *string {
 
 // evictPriorSnapshots removes older streaming snapshots for the same
 // (session_id, message_id) so token counts are not double-counted.
-func evictPriorSnapshots(conn *sql.DB, sessionID, messageID, keepUUID string) error {
+func evictPriorSnapshots(conn dbExec, sessionID, messageID, keepUUID string) error {
 	rows, err := conn.Query(
 		`SELECT uuid FROM messages WHERE session_id=? AND message_id=? AND uuid!=?`,
 		sessionID, messageID, keepUUID,
@@ -696,7 +717,7 @@ func evictPriorSnapshots(conn *sql.DB, sessionID, messageID, keepUUID string) er
 }
 
 // insertMessage upserts one row into the messages table.
-func insertMessage(conn *sql.DB, row messageRow) error {
+func insertMessage(conn dbExec, row messageRow) error {
 	if row.messageID != "" {
 		if err := evictPriorSnapshots(conn, row.sessionID, row.messageID, row.uuid); err != nil {
 			return err
@@ -728,7 +749,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 }
 
 // insertToolCall inserts one row into the tool_calls table.
-func insertToolCall(conn *sql.DB, messageUUID, sessionID, projectSlug, timestamp string, tc toolCall) error {
+func insertToolCall(conn dbExec, messageUUID, sessionID, projectSlug, timestamp string, tc toolCall) error {
 	const q = `
 INSERT INTO tool_calls
 (message_uuid,session_id,project_slug,tool_name,target,result_tokens,is_error,timestamp,
@@ -776,7 +797,7 @@ func loadFileState(conn *sql.DB, path string) (*fileState, error) {
 func saveFileState(conn *sql.DB, path string, mtime float64, bytesRead int64) error {
 	_, err := conn.Exec(
 		`INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at) VALUES (?,?,?,?)`,
-		path, mtime, bytesRead, float64(time.Now().UnixNano())/1e9,
+		path, mtime, bytesRead, float64(time.Now().UnixNano())/nanosPerSec,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert files: %w", err)
