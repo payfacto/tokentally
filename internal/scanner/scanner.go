@@ -27,21 +27,6 @@ type ScanResult struct {
 	Tools    int `json:"tools"`
 }
 
-// targetFields maps a tool name to the field inside its input object that holds
-// the human-readable "target" (file path, query, command, …).
-var targetFields = map[string]string{
-	"Read":      "file_path",
-	"Edit":      "file_path",
-	"Write":     "file_path",
-	"Glob":      "pattern",
-	"Grep":      "pattern",
-	"Bash":      "command",
-	"WebFetch":  "url",
-	"WebSearch": "query",
-	"Task":      "subagent_type",
-	"Skill":     "skill",
-}
-
 const (
 	maxTargetLen  = 500
 	charsPerToken = 4 // rough approximation for tool result token estimation
@@ -89,10 +74,10 @@ type messageObject struct {
 
 // usageObject mirrors the "usage" sub-field.
 type usageObject struct {
-	InputTokens          int                  `json:"input_tokens"`
-	OutputTokens         int                  `json:"output_tokens"`
-	CacheReadInputTokens int                  `json:"cache_read_input_tokens"`
-	CacheCreation        cacheCreationObject  `json:"cache_creation"`
+	InputTokens          int                 `json:"input_tokens"`
+	OutputTokens         int                 `json:"output_tokens"`
+	CacheReadInputTokens int                 `json:"cache_read_input_tokens"`
+	CacheCreation        cacheCreationObject `json:"cache_creation"`
 }
 
 // cacheCreationObject mirrors the "cache_creation" sub-field.
@@ -293,33 +278,33 @@ func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
 
 // messageRow holds all fields for one INSERT into the messages table.
 type messageRow struct {
-	uuid                 string
-	parentUUID           *string
-	sessionID            string
-	projectSlug          string
-	cwd                  string
-	gitBranch            string
-	ccVersion            string
-	entrypoint           string
-	msgType              string
-	isSidechain          int
-	agentID              string
-	timestamp            string
-	model                string
-	stopReason           string
-	promptID             string
-	messageID            string
-	inputTokens          int
-	outputTokens         int
-	cacheReadTokens      int
-	cacheCreate5mTokens  int
-	cacheCreate1hTokens  int
-	promptText           *string
-	promptChars          *int
-	toolCallsJSON        *string
-	thinkingText         *string
-	tokensBefore         *int
-	tokensAfter          *int
+	uuid                string
+	parentUUID          *string
+	sessionID           string
+	projectSlug         string
+	cwd                 string
+	gitBranch           string
+	ccVersion           string
+	entrypoint          string
+	msgType             string
+	isSidechain         int
+	agentID             string
+	timestamp           string
+	model               string
+	stopReason          string
+	promptID            string
+	messageID           string
+	inputTokens         int
+	outputTokens        int
+	cacheReadTokens     int
+	cacheCreate5mTokens int
+	cacheCreate1hTokens int
+	promptText          *string
+	promptChars         *int
+	toolCallsJSON       *string
+	thinkingText        *string
+	tokensBefore        *int
+	tokensAfter         *int
 }
 
 // parseLine converts a decoded JSONL record into a messageRow and tool-call list.
@@ -629,7 +614,7 @@ func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []to
 
 // extractTarget resolves the "target" field from a tool's input object.
 func extractTarget(toolName string, inputRaw json.RawMessage) string {
-	field, ok := targetFields[toolName]
+	field, ok := db.ToolInputFields[toolName]
 	if !ok || len(inputRaw) == 0 {
 		return ""
 	}

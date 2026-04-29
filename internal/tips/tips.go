@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	lowCacheHitThreshold    = 0.20
+	lowCacheHitThreshold     = 0.20
 	highOutputRatioThreshold = 0.5
-	shortSessionTurnRatio   = 3.0
-	manySessionsMin         = 10
+	shortSessionTurnRatio    = 3.0
+	manySessionsMin          = 10
 )
 
 type tip struct {
