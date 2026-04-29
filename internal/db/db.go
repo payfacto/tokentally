@@ -98,9 +98,11 @@ CREATE TABLE IF NOT EXISTS skill_sizes (
 );
 `
 
+const nanosPerSec = 1e9 // UnixNano → seconds for mtime/scanned_at storage
+
 // nowFunc is a package-level variable so unit tests can inject a deterministic
 // clock without requiring real wall-clock time.
-var nowFunc = func() float64 { return float64(time.Now().UnixNano()) / 1e9 }
+var nowFunc = func() float64 { return float64(time.Now().UnixNano()) / nanosPerSec }
 
 // Open opens (or creates) the SQLite database at path and applies the schema.
 func Open(path string) (*sql.DB, error) {
@@ -112,7 +114,7 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db.Open %s: %w", path, err)
 	}
-	conn.SetMaxOpenConns(1)
+	conn.SetMaxOpenConns(4) // WAL mode supports concurrent readers; 1 caused reads to block behind scanner writes
 	if _, err := conn.Exec(schema); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("db.Open schema: %w", err)
