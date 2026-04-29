@@ -423,7 +423,7 @@ func TestRecentSessions(t *testing.T) {
 		"input_tokens": 80, "output_tokens": 30,
 	})
 
-	rows, err := db.RecentSessions(conn, 10, "", "")
+	rows, err := db.RecentSessions(conn, 10, "", "", "")
 	if err != nil {
 		t.Fatalf("RecentSessions failed: %v", err)
 	}
@@ -433,6 +433,31 @@ func TestRecentSessions(t *testing.T) {
 	// Newest session first.
 	if rows[0]["session_id"] != "s2" {
 		t.Errorf("expected s2 first (more recent ended), got %q", rows[0]["session_id"])
+	}
+}
+
+func TestRecentSessionsByProject(t *testing.T) {
+	conn := openMem(t)
+	insertMessage(t, conn, map[string]any{
+		"uuid": "rsp1", "session_id": "sa1", "project_slug": "alpha",
+		"type": "assistant", "timestamp": "2025-06-01T10:00:00Z",
+		"input_tokens": 50, "output_tokens": 20,
+	})
+	insertMessage(t, conn, map[string]any{
+		"uuid": "rsp2", "session_id": "sb1", "project_slug": "beta",
+		"type": "assistant", "timestamp": "2025-06-02T10:00:00Z",
+		"input_tokens": 80, "output_tokens": 30,
+	})
+
+	rows, err := db.RecentSessions(conn, 10, "", "", "alpha")
+	if err != nil {
+		t.Fatalf("RecentSessions with slug failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row for project alpha, got %d", len(rows))
+	}
+	if rows[0]["session_id"] != "sa1" {
+		t.Errorf("expected session sa1, got %q", rows[0]["session_id"])
 	}
 }
 

@@ -27,6 +27,13 @@ const (
 	defaultSessionLimit = 20
 )
 
+func clampLimit(limit, defaultVal int) int {
+	if limit <= 0 || limit > maxQueryLimit {
+		return defaultVal
+	}
+	return limit
+}
+
 // defaultExchangeRates seeds initial USD→currency rates (approximate, as of 2026-04).
 // These are overwritten by RefreshExchangeRates once the user adds an API key.
 var defaultExchangeRates = map[string]float64{
@@ -200,10 +207,7 @@ func (a *App) GetOverview(since, until string) (overviewResult, error) {
 }
 
 func (a *App) GetPrompts(limit int, sort string) ([]map[string]any, error) {
-	if limit <= 0 || limit > maxQueryLimit {
-		limit = defaultPromptLimit
-	}
-	rows, err := db.ExpensivePrompts(a.conn, limit, sort)
+	rows, err := db.ExpensivePrompts(a.conn, clampLimit(limit, defaultPromptLimit), sort)
 	if err != nil {
 		return nil, err
 	}
@@ -219,10 +223,11 @@ func (a *App) GetProjects(since, until string) ([]map[string]any, error) {
 }
 
 func (a *App) GetSessions(limit int, since, until string) ([]map[string]any, error) {
-	if limit <= 0 || limit > maxQueryLimit {
-		limit = defaultSessionLimit
-	}
-	return db.RecentSessions(a.conn, limit, since, until)
+	return db.RecentSessions(a.conn, clampLimit(limit, defaultSessionLimit), since, until, "")
+}
+
+func (a *App) GetSessionsByProject(limit int, projectSlug, since, until string) ([]map[string]any, error) {
+	return db.RecentSessions(a.conn, clampLimit(limit, defaultSessionLimit), since, until, projectSlug)
 }
 
 func (a *App) GetSessionTurns(sessionID string) ([]map[string]any, error) {

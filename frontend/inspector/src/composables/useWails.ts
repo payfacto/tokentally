@@ -32,7 +32,7 @@ function rangeToSince(range: string): string {
   return new Date(Date.now() - d * 86_400_000).toISOString()
 }
 
-export function useSessionList(range: Ref<string>) {
+export function useSessionList(range: Ref<string>, project?: Ref<string>) {
   const data = ref<Session[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
@@ -42,7 +42,10 @@ export function useSessionList(range: Ref<string>) {
     error.value = null
     try {
       const since = rangeToSince(range.value)
-      data.value = (await window.go.app.App.GetSessions(200, since, '')) ?? []
+      const slug = project?.value || ''
+      data.value = slug
+        ? (await window.go.app.App.GetSessionsByProject(200, slug, since, '')) ?? []
+        : (await window.go.app.App.GetSessions(200, since, '')) ?? []
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -51,6 +54,7 @@ export function useSessionList(range: Ref<string>) {
   }
 
   watch(range, refetch, { immediate: true })
+  if (project) watch(project, refetch)
   return { data, isLoading, error, refetch }
 }
 
