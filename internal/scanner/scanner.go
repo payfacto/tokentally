@@ -14,16 +14,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"tokentally/internal/db"
 	"tokentally/internal/skills"
 )
-
-// skillSizeCache prevents re-statting the same skill file on every scan tick.
-// Keys are skill names; presence means the size has already been upserted.
-var skillSizeCache sync.Map
 
 // ScanResult summarises one call to ScanDir.
 type ScanResult struct {
@@ -284,11 +279,8 @@ func processLine(conn *sql.DB, raw []byte, slug string) (int, int, error) {
 			return 0, 0, fmt.Errorf("insertToolCall: %w", err)
 		}
 		if tc.toolName == "Skill" && tc.target != "" {
-			if _, seen := skillSizeCache.Load(tc.target); !seen {
-				if b, ok := skills.Bytes(tc.target); ok {
-					_ = db.UpsertSkillSize(conn, tc.target, b)
-				}
-				skillSizeCache.Store(tc.target, struct{}{})
+			if b, ok := skills.Bytes(tc.target); ok {
+				_ = db.UpsertSkillSize(conn, tc.target, b)
 			}
 		}
 	}
@@ -602,13 +594,26 @@ func extractAttr(s, name string) string {
 
 // pairToolResults updates tool_calls rows (tool_use entries) with the output text,
 // error flag, and duration from the matching tool_result block in a user message.
+// Updates are batched in a single transaction to avoid per-row fsyncs.
 // Errors are best-effort and do not abort the scan.
 func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []toolCall) {
+	// Collect only the _tool_result entries to avoid opening a tx unnecessarily.
+	var pairs []toolCall
 	for _, r := range results {
-		if r.toolName != "_tool_result" {
-			continue
+		if r.toolName == "_tool_result" {
+			pairs = append(pairs, r)
 		}
-		conn.Exec( //nolint:errcheck
+	}
+	if len(pairs) == 0 {
+		return
+	}
+
+	tx, err := conn.Begin()
+	if err != nil {
+		return
+	}
+	for _, r := range pairs {
+		tx.Exec( //nolint:errcheck
 			`UPDATE tool_calls
 			SET output_text = ?,
 			    is_error = ?,
@@ -619,6 +624,7 @@ func pairToolResults(conn *sql.DB, sessionID, userTimestamp string, results []to
 			r.outputText, r.isError, userTimestamp, r.target, sessionID,
 		)
 	}
+	tx.Commit() //nolint:errcheck
 }
 
 // extractTarget resolves the "target" field from a tool's input object.

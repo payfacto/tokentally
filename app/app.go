@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"tokentally/internal/db"
@@ -57,7 +59,8 @@ type App struct {
 	ctx            context.Context
 	conn           *sql.DB
 	projectsDir    string
-	pricing        *pricing.Pricing // live, rebuilt from DB on every change
+	pricingMu      sync.RWMutex
+	pricing        *pricing.Pricing // guarded by pricingMu; rebuilt from DB on every change
 	defaultPricing *pricing.Pricing // immutable seed from embedded pricing.json
 }
 
@@ -102,10 +105,12 @@ func (a *App) seedFromDefaults() {
 func (a *App) reloadPricing() {
 	models, err := db.GetPricingModels(a.conn)
 	if err != nil {
+		log.Printf("reloadPricing: GetPricingModels: %v", err)
 		return
 	}
 	plans, err := db.GetPricingPlans(a.conn)
 	if err != nil {
+		log.Printf("reloadPricing: GetPricingPlans: %v", err)
 		return
 	}
 	p := &pricing.Pricing{
@@ -130,7 +135,9 @@ func (a *App) reloadPricing() {
 			Monthly: asFloat64(pl["monthly"]),
 		}
 	}
+	a.pricingMu.Lock()
 	a.pricing = p
+	a.pricingMu.Unlock()
 }
 
 func (a *App) scanLoop() {
@@ -197,7 +204,7 @@ func (a *App) GetOverview(since, until string) (overviewResult, error) {
 	var totalCost float64
 	for _, m := range models {
 		model, _ := m["model"].(string)
-		c := pricing.CostFor(model, usageFromRow(m), a.pricing, a.getPlan())
+		c := pricing.CostFor(model, usageFromRow(m), a.getPricing(), a.getPlan())
 		if c != nil {
 			totalCost += *c
 		}
@@ -213,7 +220,7 @@ func (a *App) GetPrompts(limit int, sort string) ([]map[string]any, error) {
 	}
 	for _, r := range rows {
 		model, _ := r["model"].(string)
-		r["estimated_cost_usd"] = pricing.CostFor(model, usageFromRow(r), a.pricing, a.getPlan())
+		r["estimated_cost_usd"] = pricing.CostFor(model, usageFromRow(r), a.getPricing(), a.getPlan())
 	}
 	return rows, nil
 }
@@ -228,10 +235,6 @@ func (a *App) GetSessions(limit int, since, until string) ([]map[string]any, err
 
 func (a *App) GetSessionsByProject(limit int, projectSlug, since, until string) ([]map[string]any, error) {
 	return db.RecentSessions(a.conn, clampLimit(limit, defaultSessionLimit), since, until, projectSlug)
-}
-
-func (a *App) GetSessionTurns(sessionID string) ([]map[string]any, error) {
-	return db.SessionTurns(a.conn, sessionID)
 }
 
 // GetSessionChunks returns a session as structured chunks for the Vue inspector.
@@ -257,7 +260,7 @@ func (a *App) GetByModel(since, until string) ([]map[string]any, error) {
 	}
 	for _, r := range rows {
 		model, _ := r["model"].(string)
-		c := pricing.CostFor(model, usageFromRow(r), a.pricing, a.getPlan())
+		c := pricing.CostFor(model, usageFromRow(r), a.getPricing(), a.getPlan())
 		r["cost_usd"] = c
 		r["cost_estimated"] = (c == nil)
 	}
@@ -270,10 +273,13 @@ func (a *App) GetSkills(since, until string) ([]map[string]any, error) {
 
 func (a *App) GetTips() ([]map[string]any, error) {
 	result, err := tips.AllTips(a.conn)
+	if err != nil {
+		return nil, err
+	}
 	if result == nil {
 		result = []map[string]any{}
 	}
-	return result, err
+	return result, nil
 }
 
 func (a *App) DismissTip(key string) error {
@@ -293,7 +299,7 @@ func (a *App) GetPlan() (map[string]any, error) {
 	}
 	return map[string]any{
 		"plan":          plan,
-		"pricing":       a.pricing,
+		"pricing":       a.getPricing(),
 		"currency":      currency,
 		"exchange_rate": rate,
 	}, nil
@@ -382,7 +388,8 @@ func (a *App) RefreshExchangeRates() (map[string]float64, error) {
 	if key == "" {
 		return nil, fmt.Errorf("no API key — enter your exchangerate-api.com key first")
 	}
-	resp, err := http.Get("https://v6.exchangerate-api.com/v6/" + key + "/latest/USD") //nolint:noctx
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://v6.exchangerate-api.com/v6/" + key + "/latest/USD")
 	if err != nil {
 		return nil, fmt.Errorf("fetching rates: %w", err)
 	}
@@ -595,8 +602,18 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 }
 
 func (a *App) getPlan() string {
-	plan, _ := db.GetPlan(a.conn)
+	plan, err := db.GetPlan(a.conn)
+	if err != nil {
+		log.Printf("getPlan: %v", err)
+	}
 	return plan
+}
+
+func (a *App) getPricing() *pricing.Pricing {
+	a.pricingMu.RLock()
+	p := a.pricing
+	a.pricingMu.RUnlock()
+	return p
 }
 
 func usageFromRow(r map[string]any) pricing.Usage {

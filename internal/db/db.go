@@ -112,6 +112,7 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db.Open %s: %w", path, err)
 	}
+	conn.SetMaxOpenConns(1)
 	if _, err := conn.Exec(schema); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("db.Open schema: %w", err)
@@ -413,18 +414,6 @@ GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 		r["project_name"] = slugCache[slug]
 	}
 	return results, nil
-}
-
-// SessionTurns returns all messages in a session ordered by timestamp ASC.
-func SessionTurns(conn *sql.DB, sessionID string) ([]map[string]any, error) {
-	rows, err := conn.Query(
-		`SELECT * FROM messages WHERE session_id=? ORDER BY timestamp ASC`, sessionID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("SessionTurns: %w", err)
-	}
-	defer rows.Close()
-	return scanMaps(rows)
 }
 
 // ToolBreakdown returns per-tool call counts, excluding _tool_result rows.
