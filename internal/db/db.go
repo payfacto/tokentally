@@ -818,7 +818,7 @@ func SetExchangeRate(conn *sql.DB, currency string, rate float64) error {
 	return nil
 }
 
-// GetExchangeApiKey returns the stored exchangerate-api.com API key.
+// GetExchangeApiKey returns the stored exchangerate-api.com API key, decrypted.
 func GetExchangeApiKey(conn *sql.DB) (string, error) {
 	var v string
 	err := conn.QueryRow(`SELECT v FROM plan WHERE k='exchange_api_key'`).Scan(&v)
@@ -828,12 +828,16 @@ func GetExchangeApiKey(conn *sql.DB) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("GetExchangeApiKey: %w", err)
 	}
-	return v, nil
+	return decryptAPIKey(v)
 }
 
-// SetExchangeApiKey stores the exchangerate-api.com API key.
+// SetExchangeApiKey encrypts and stores the exchangerate-api.com API key.
 func SetExchangeApiKey(conn *sql.DB, key string) error {
-	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('exchange_api_key',?)`, key)
+	encrypted, err := encryptAPIKey(key)
+	if err != nil {
+		return fmt.Errorf("SetExchangeApiKey: %w", err)
+	}
+	_, err = conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('exchange_api_key',?)`, encrypted)
 	if err != nil {
 		return fmt.Errorf("SetExchangeApiKey: %w", err)
 	}
