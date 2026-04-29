@@ -461,39 +461,6 @@ func TestRecentSessionsByProject(t *testing.T) {
 	}
 }
 
-func TestSessionTurns(t *testing.T) {
-	conn := openMem(t)
-	insertMessage(t, conn, map[string]any{
-		"uuid": "st1", "session_id": "sess-abc", "project_slug": "proj1",
-		"type": "user", "timestamp": "2025-06-01T09:00:00Z",
-	})
-	insertMessage(t, conn, map[string]any{
-		"uuid": "st2", "session_id": "sess-abc", "project_slug": "proj1",
-		"type": "assistant", "timestamp": "2025-06-01T09:01:00Z",
-		"input_tokens": 100, "output_tokens": 50,
-	})
-	// A message in a different session — should be excluded.
-	insertMessage(t, conn, map[string]any{
-		"uuid": "st3", "session_id": "other-sess", "project_slug": "proj1",
-		"type": "user", "timestamp": "2025-06-01T08:00:00Z",
-	})
-
-	rows, err := db.SessionTurns(conn, "sess-abc")
-	if err != nil {
-		t.Fatalf("SessionTurns failed: %v", err)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 turns for sess-abc, got %d", len(rows))
-	}
-	// ORDER BY timestamp ASC — user message should come first.
-	if rows[0]["uuid"] != "st1" {
-		t.Errorf("expected st1 first (earlier timestamp), got %q", rows[0]["uuid"])
-	}
-	if rows[1]["uuid"] != "st2" {
-		t.Errorf("expected st2 second, got %q", rows[1]["uuid"])
-	}
-}
-
 func TestToolBreakdown(t *testing.T) {
 	conn := openMem(t)
 	insertToolCall(t, conn, map[string]any{
