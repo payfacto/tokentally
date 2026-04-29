@@ -301,8 +301,88 @@ FROM messages WHERE 1=1` + rng
 	return results[0], nil
 }
 
-// ExpensivePrompts returns user prompts joined with the following assistant
-// turn, ordered by billable_tokens DESC (sort="tokens") or timestamp DESC (sort="recent").
+// SearchPrompts returns user/hook prompts matching an optional text query,
+// filtered by type and date range. types is a comma-separated list of
+// "user", "subagent", "hook". from/to are YYYY-MM-DD date strings.
+func SearchPrompts(conn *sql.DB, query, types, from, to string) ([]map[string]any, error) {
+	var whereParts []string
+	var args []any
+
+	if query != "" {
+		whereParts = append(whereParts, "u.prompt_text LIKE ?")
+		args = append(args, "%"+query+"%")
+	}
+
+	typeSet := map[string]bool{}
+	for _, t := range strings.Split(types, ",") {
+		typeSet[strings.TrimSpace(t)] = true
+	}
+	if !(typeSet["user"] && typeSet["subagent"] && typeSet["hook"]) {
+		var typeConds []string
+		if typeSet["user"] {
+			typeConds = append(typeConds, "(u.type='user' AND u.is_sidechain=0)")
+		}
+		if typeSet["subagent"] {
+			typeConds = append(typeConds, "(u.type='user' AND u.is_sidechain=1)")
+		}
+		if typeSet["hook"] {
+			typeConds = append(typeConds, "u.type='attachment'")
+		}
+		if len(typeConds) == 0 {
+			return []map[string]any{}, nil
+		}
+		whereParts = append(whereParts, "("+strings.Join(typeConds, " OR ")+")")
+	}
+
+	if from != "" {
+		whereParts = append(whereParts, "u.timestamp >= ?")
+		args = append(args, from)
+	}
+	if to != "" {
+		// Advance one day so the upper bound is exclusive and includes all
+		// timestamps on the 'to' date (ISO strings sort lexicographically,
+		// so "2024-01-15T23:59:59Z" > "2024-01-15" but < "2024-01-16").
+		if t, err := time.Parse("2006-01-02", to); err == nil {
+			whereParts = append(whereParts, "u.timestamp < ?")
+			args = append(args, t.AddDate(0, 0, 1).Format("2006-01-02"))
+		}
+	}
+
+	whereClause := ""
+	if len(whereParts) > 0 {
+		whereClause = " AND " + strings.Join(whereParts, " AND ")
+	}
+
+	q := `
+SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
+       u.prompt_text, u.prompt_chars,
+       u.is_sidechain, u.type AS msg_type,
+       a.uuid AS assistant_uuid, COALESCE(a.model,'') AS model,
+       COALESCE(a.input_tokens,0) AS input_tokens,
+       COALESCE(a.output_tokens,0) AS output_tokens,
+       COALESCE(a.cache_read_tokens,0) AS cache_read_tokens,
+       COALESCE(a.cache_create_5m_tokens,0) AS cache_create_5m_tokens,
+       COALESCE(a.cache_create_1h_tokens,0) AS cache_create_1h_tokens,
+       COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)
+         +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens
+FROM messages u
+LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
+WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt_text != ''` +
+		whereClause + `
+ORDER BY u.timestamp DESC
+LIMIT 200`
+
+	rows, err := conn.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("SearchPrompts: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// ExpensivePrompts returns user and hook prompts joined with the following
+// assistant turn, ordered by billable_tokens DESC (sort="tokens") or
+// timestamp DESC (sort="recent").
 func ExpensivePrompts(conn *sql.DB, limit int, sort string) ([]map[string]any, error) {
 	order := "billable_tokens DESC"
 	if sort == "recent" {
@@ -311,6 +391,7 @@ func ExpensivePrompts(conn *sql.DB, limit int, sort string) ([]map[string]any, e
 	q := `
 SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
        u.prompt_text, u.prompt_chars,
+       u.is_sidechain, u.type AS msg_type,
        a.uuid AS assistant_uuid, a.model,
        COALESCE(a.input_tokens,0) AS input_tokens,
        COALESCE(a.output_tokens,0) AS output_tokens,
@@ -321,7 +402,7 @@ SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
          +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens
 FROM messages u
 JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
-WHERE u.type='user' AND u.prompt_text IS NOT NULL
+WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt_text != ''
 ORDER BY ` + order + `
 LIMIT ?`
 

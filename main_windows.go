@@ -19,7 +19,18 @@ import (
 	"tokentally/svc"
 )
 
-const startupRegistryKey = `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+const (
+	startupRegistryKey = `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+
+	windowWidth     = 1100
+	windowHeight    = 700
+	windowMinWidth  = 800
+	windowMinHeight = 600
+
+	bgR = 13
+	bgG = 13
+	bgB = 26
+)
 
 //go:embed all:frontend
 var rawAssets embed.FS
@@ -110,11 +121,11 @@ func runUI(dbPath, projectsDir string) {
 
 	if err := wails.Run(&options.App{
 		Title:             "TokenTally",
-		Width:             1100,
-		Height:            700,
-		MinWidth:          800,
-		MinHeight:         600,
-		BackgroundColour:  &options.RGBA{R: 13, G: 13, B: 26, A: 255},
+		Width:             windowWidth,
+		Height:            windowHeight,
+		MinWidth:          windowMinWidth,
+		MinHeight:         windowMinHeight,
+		BackgroundColour:  &options.RGBA{R: bgR, G: bgG, B: bgB, A: 255},
 		HideWindowOnClose: true, // keep runtime alive so tray can re-show the window
 		AssetServer: &assetserver.Options{
 			Assets: assets,

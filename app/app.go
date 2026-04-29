@@ -81,7 +81,10 @@ func New(conn *sql.DB, projectsDir string, p *pricing.Pricing) *App {
 // Startup is called by Wails when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	seeded, _ := db.IsPricingSeeded(a.conn)
+	seeded, err := db.IsPricingSeeded(a.conn)
+	if err != nil {
+		log.Printf("IsPricingSeeded: %v", err)
+	}
 	if !seeded {
 		a.seedFromDefaults()
 	}
@@ -224,6 +227,18 @@ func (a *App) GetOverview(since, until string) (overviewResult, error) {
 
 func (a *App) GetPrompts(limit int, sort string) ([]map[string]any, error) {
 	rows, err := db.ExpensivePrompts(a.conn, clampLimit(limit, defaultPromptLimit), sort)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		model, _ := r["model"].(string)
+		r["estimated_cost_usd"] = pricing.CostFor(model, usageFromRow(r), a.getPricing(), a.getPlan())
+	}
+	return rows, nil
+}
+
+func (a *App) SearchPrompts(query, types, from, to string) ([]map[string]any, error) {
+	rows, err := db.SearchPrompts(a.conn, query, types, from, to)
 	if err != nil {
 		return nil, err
 	}

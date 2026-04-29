@@ -18,6 +18,8 @@ func (a *App) StartTray() {
 	systray.Run(a.onTrayReady, func() {})
 }
 
+const focusPulseDelay = 150 * time.Millisecond
+
 func (a *App) onTrayReady() {
 	if len(IconBytes) > 0 {
 		systray.SetIcon(IconBytes)
@@ -33,12 +35,13 @@ func (a *App) onTrayReady() {
 		select {
 		case <-mOpen.ClickedCh:
 			if a.ctx != nil {
-				runtime.WindowShow(a.ctx)
-				runtime.WindowUnminimise(a.ctx)
-				// Brief always-on-top pulse forces the window to the foreground on Windows.
-				runtime.WindowSetAlwaysOnTop(a.ctx, true)
+				// Run in a goroutine — Wails window calls can block via cross-thread
+				// Win32 SendMessage if WebView2 is busy, which would freeze the tray loop.
 				go func() {
-					time.Sleep(150 * time.Millisecond)
+					runtime.WindowShow(a.ctx)
+					runtime.WindowUnminimise(a.ctx)
+					runtime.WindowSetAlwaysOnTop(a.ctx, true)
+					time.Sleep(focusPulseDelay)
 					runtime.WindowSetAlwaysOnTop(a.ctx, false)
 				}()
 			}
