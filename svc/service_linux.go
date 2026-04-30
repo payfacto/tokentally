@@ -27,20 +27,20 @@ func GetServiceStatus() map[string]any {
 	}
 
 	obj := conn.Object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
-	iface := obj.Interface("org.freedesktop.systemd1.Manager")
 
 	var unitPath dbus.ObjectPath
-	err = iface.Call("org.freedesktop.systemd1.Manager.GetUnit", 0, ServiceName+".service").Store(&unitPath)
+	err = obj.Call("org.freedesktop.systemd1.Manager.GetUnit", 0, ServiceName+".service").Store(&unitPath)
 	if err != nil {
 		return map[string]any{"installed": false}
 	}
 
 	unitObj := conn.Object("org.freedesktop.systemd1", unitPath)
-	unitIf := unitObj.Interface("org.freedesktop.systemd1.Unit")
-
-	var state string
-	err = unitIf.Call("org.freedesktop.systemd1.Unit.State", 0).Store(&state)
+	prop, err := unitObj.GetProperty("org.freedesktop.systemd1.Unit.ActiveState")
 	if err != nil {
+		return map[string]any{"installed": true, "state": "unknown"}
+	}
+	state, ok := prop.Value().(string)
+	if !ok {
 		return map[string]any{"installed": true, "state": "unknown"}
 	}
 
