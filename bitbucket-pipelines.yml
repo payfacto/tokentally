@@ -28,6 +28,9 @@ definitions:
     - step: &mirror-to-github
         name: Mirror to GitHub
         script:
+          # Tag-triggered pipelines clone in detached-HEAD state, so the local
+          # `main` ref doesn't exist. Force-fetch it from origin before pushing.
+          - git fetch origin '+refs/heads/main:refs/heads/main'
           - git remote add github git@github.com:payfacto/tokentally.git
           - git push github main --force
           - git push github --tags --force
