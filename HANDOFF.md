@@ -47,3 +47,45 @@
 - **Subagent filter toggle** — `is_sidechain` is exposed but unused as a filter; could add a toggle to show/hide subagent prompts for users who only want their own input
 - **`wails build` for distribution** — latest committed source has not been built into a distributable `.exe` with Windows manifest (DPI awareness, UAC); use `wails build -platform windows/amd64`
 - **`rtk-feature.md`** — user has a todo in `.superpowers/jay-todo/rtk-feature.md`; not yet reviewed
+
+---
+
+## Session — 2026-04-30 12:53
+
+### What Was Done
+
+- **RTK gain parser rewrite** — replaced single "highest %" scrape with a structured parser that extracts all summary fields (total commands, input/output/tokens saved with %, exec time) and the full "By Command" table (rank, command, count, saved, avg%, time, impact fraction from `█░` blocks). Fixed bug where 100.0% from a per-command row was returned instead of the global 89.7% from "Tokens saved" line.
+- **RTK frontend redesign** — rewrote the RTK section in `OverageView.vue` to match the design spec in `.superpowers/jay-todo/image-3.png`: stats row with icons, SVG donut efficiency gauge (r=42, `stroke-dasharray` arc), "By Command" table with orange impact bars, card widened to 760px.
+- **RTK install link line-break fix** — separated the `rtk-ai.app →` link from the description paragraph so it starts on its own line instead of wrapping inline.
+- **README overhaul** — added all missing features: Calculator tab, Tools tab, RTK Token Savings section, currency/exchange rates, HTML export, data retention, daily trends, sessions turn-by-turn, platform feature matrix table. Corrected tab count (9, not 7). Fixed MD060 linter warnings on table separator rows.
+
+### Files Changed
+
+- `app/app.go` — added `RTKCommandRow` struct; expanded `RTKGainResult` with all parsed fields; replaced `rtkPctRe` with 6 targeted regexes; rewrote `GetRTKGain()` to parse all summary lines and "By Command" table rows
+- `frontend/inspector/src/views/OverageView.vue` — new `RTKCommandRow` + expanded `RTKGainResult` interfaces; full template rewrite for RTK section (stats row, SVG donut, table with impact bars); install link on own line; CSS expanded
+- `frontend/web/app.bundle.js` / `frontend/web/app.css` — rebuilt (gitignored, not committed)
+- `README.md` — near-complete rewrite of features section; added platform matrix table; building section unchanged
+
+### Decisions Made
+
+- **SVG donut not canvas/ECharts** — inline SVG `stroke-dasharray` approach; keeps zero extra dependencies and matches the existing ECharts pattern of self-contained rendering
+- **efficiencyColor returns hex not CSS vars** — SVG `stroke` attribute doesn't resolve CSS custom properties; concrete hex values (`#2d8a5e` etc.) used throughout
+- **Impact bar width from `█░` block chars** — `strings.Count(s, "█") / len([]rune(s))` gives a 0–1 fraction directly from RTK's own visual output; no separate calculation needed
+- **Separator row fixed to `| --- |` style** — MD060 linter requires consistent spacing around pipes; all table separator rows updated to match content row style
+
+### Open Questions / Blockers
+
+- RTK section rendered correctly in parser test but not verified in the live Wails app (no browser page was open during session); recommend opening Tools tab and clicking "Check RTK status" to confirm layout
+
+### Running state
+
+- Background processes: none
+- Dev servers / ports: none
+- Open worktrees / branches: none
+- Working tree: clean, `origin/main` up to date (commits `2b2e7e2`, `16a5ddd`)
+
+### Inferred Next Steps
+
+- **Smoke test RTK dashboard** — open the Wails app, navigate to Tools tab, click "Check RTK status", verify: stats row shows correct values, donut shows ~89.7%, "By Command" table has rows with orange impact bars
+- **`rtk-feature.md` review** — `.superpowers/jay-todo/rtk-feature.md` was noted as unreviewed in previous session; check if anything there wasn't yet implemented
+- **`wails build` for distribution** — source is up to date but no fresh Windows `.exe` has been produced this session; build with `wails build -platform windows/amd64`
