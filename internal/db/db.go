@@ -136,6 +136,19 @@ func (p *Pool) Close() error {
 	return rerr
 }
 
+// CheckpointWAL runs a TRUNCATE checkpoint, which copies any pending pages
+// from the -wal file into the main database and then truncates the wal back
+// to zero length. Safe to call regularly — a no-op when nothing is pending,
+// and best-effort when readers are active (returns busy=1 in the result row,
+// which we ignore since the next call will retry).
+func (p *Pool) CheckpointWAL() error {
+	_, err := p.Write.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	if err != nil {
+		return fmt.Errorf("CheckpointWAL: %w", err)
+	}
+	return nil
+}
+
 // Open opens (or creates) the SQLite database at path and applies the schema.
 // File-backed databases get separate read and write pools; :memory: shares one
 // handle.
@@ -512,13 +525,19 @@ GROUP BY project_slug ORDER BY billable_tokens DESC`
 		return nil, fmt.Errorf("ProjectSummary scan: %w", err)
 	}
 
+	slugs := make([]string, 0, len(results))
+	for _, r := range results {
+		if slug, _ := r["project_slug"].(string); slug != "" {
+			slugs = append(slugs, slug)
+		}
+	}
+	cwdMap, err := cwdsForSlugs(p, slugs)
+	if err != nil {
+		return nil, err
+	}
 	for _, r := range results {
 		slug, _ := r["project_slug"].(string)
-		cwds, err := distinctCWDs(p, slug)
-		if err != nil {
-			return nil, err
-		}
-		r["project_name"] = BestProjectName(cwds, slug)
+		r["project_name"] = BestProjectName(cwdMap[slug], slug)
 	}
 	return results, nil
 }
@@ -551,17 +570,27 @@ GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 		return nil, fmt.Errorf("RecentSessions scan: %w", err)
 	}
 
-	slugCache := map[string]string{}
+	slugSet := map[string]struct{}{}
+	for _, r := range results {
+		if slug, _ := r["project_slug"].(string); slug != "" {
+			slugSet[slug] = struct{}{}
+		}
+	}
+	uniqueSlugs := make([]string, 0, len(slugSet))
+	for slug := range slugSet {
+		uniqueSlugs = append(uniqueSlugs, slug)
+	}
+	cwdMap, err := cwdsForSlugs(p, uniqueSlugs)
+	if err != nil {
+		return nil, err
+	}
+	nameCache := make(map[string]string, len(uniqueSlugs))
+	for _, slug := range uniqueSlugs {
+		nameCache[slug] = BestProjectName(cwdMap[slug], slug)
+	}
 	for _, r := range results {
 		slug, _ := r["project_slug"].(string)
-		if _, ok := slugCache[slug]; !ok {
-			cwds, err := distinctCWDs(p, slug)
-			if err != nil {
-				return nil, err
-			}
-			slugCache[slug] = BestProjectName(cwds, slug)
-		}
-		r["project_name"] = slugCache[slug]
+		r["project_name"] = nameCache[slug]
 	}
 	return results, nil
 }
@@ -1005,23 +1034,36 @@ func SetExchangeApiKey(p *Pool, key string) error {
 	return nil
 }
 
-// distinctCWDs returns all distinct non-null cwd values for a project slug.
-func distinctCWDs(p *Pool, slug string) ([]string, error) {
+// cwdsForSlugs fetches distinct (project_slug, cwd) pairs for all given slugs
+// in one query, returning a slug → cwds map. Used by ProjectSummary and
+// RecentSessions to resolve project names without an N+1 round-trip per row.
+func cwdsForSlugs(p *Pool, slugs []string) (map[string][]string, error) {
+	result := map[string][]string{}
+	if len(slugs) == 0 {
+		return result, nil
+	}
+	placeholders := strings.Repeat("?,", len(slugs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(slugs))
+	for i, s := range slugs {
+		args[i] = s
+	}
 	rows, err := p.Read.Query(
-		`SELECT DISTINCT cwd FROM messages WHERE project_slug=? AND cwd IS NOT NULL`, slug,
+		`SELECT DISTINCT project_slug, cwd FROM messages
+		 WHERE project_slug IN (`+placeholders+`) AND cwd IS NOT NULL`,
+		args...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("distinctCWDs: %w", err)
+		return nil, fmt.Errorf("cwdsForSlugs: %w", err)
 	}
 	defer rows.Close()
-
-	var cwds []string
 	for rows.Next() {
-		var cwd string
-		if err := rows.Scan(&cwd); err != nil {
-			return nil, err
+		var slug, cwd string
+		if err := rows.Scan(&slug, &cwd); err != nil {
+			return nil, fmt.Errorf("cwdsForSlugs scan: %w", err)
 		}
-		cwds = append(cwds, cwd)
+		result[slug] = append(result[slug], cwd)
 	}
-	return cwds, rows.Err()
+	return result, rows.Err()
 }
+
