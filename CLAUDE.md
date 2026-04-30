@@ -52,7 +52,7 @@ Platform entry points use Go's filename-based build constraints (`_windows.go`, 
 | `--install` | Register SCM service + startup registry key (admin) |
 | `--uninstall` | Remove SCM service + startup registry key (admin) |
 
-The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS main thread on Windows.
+Wails owns the main goroutine (WebView2Loader requirement); `go a.StartTray()` runs systray in a goroutine (`getlantern/systray` calls `runtime.LockOSThread()` internally — safe in any goroutine). `os.Exit(0)` after `wails.Run()` returns to kill the systray goroutine; never call `systray.Quit()` — deadlocks the Win32 message loop. `HideWindowOnClose: true` keeps the runtime alive so the tray can re-show the window. "Open Dashboard" uses a brief `WindowSetAlwaysOnTop(true/false)` pulse to force foreground focus.
 
 **macOS** — `main_darwin.go` runs the Wails GUI only (no systray, no service). WebKit owns the main thread; closing the window quits the app.
 
@@ -70,8 +70,8 @@ The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS mai
 
 ### Key packages
 
-- **`internal/db`** — schema, all SQL query helpers (`ExpensivePrompts`, `OverviewTotals`, `ProjectSummary`, etc.), plan/tips persistence. `scanMaps` converts `sql.Rows` → `[]map[string]any`. No ORM.
-- **`internal/scanner`** — incremental JSONL walker. Tracks `(path, mtime, bytes_read)` per file; stops at partial lines for mid-flush safety. `evictPriorSnapshots` removes older streaming snapshots sharing `(session_id, message_id)` before upserting. `attachment`-type records (hook results) are parsed via `attachmentPromptText`: the hook name + stdout are stored in `prompt_text` so they appear as clickable rows in the Sessions turn-by-turn view.
+- **`internal/db`** — schema, all SQL query helpers (`ExpensivePrompts`, `OverviewTotals`, `ProjectSummary`, etc.), plan/tips persistence. `db.Pool` holds two `*sql.DB` handles to the same file: Read (`MaxOpenConns=4`) and Write (`MaxOpenConns=1`); `:memory:` paths share one handle. `scanMaps` converts `sql.Rows` → `[]map[string]any` and returns `make([]map[string]any, 0)` — never nil (Wails serializes nil as JSON `null`, crashing Vue `v-if` guards). No ORM.
+- **`internal/scanner`** — incremental JSONL walker. Tracks `(path, mtime, bytes_read)` per file; stops at partial lines for mid-flush safety. `evictPriorSnapshots` removes older streaming snapshots sharing `(session_id, message_id)` before upserting. `attachment`-type records (hook results) are parsed via `attachmentPromptText`: the hook name + stdout are stored in `prompt_text` so they appear as clickable rows in the Sessions turn-by-turn view. **Never delete `files` table rows** — they are the "already scanned" markers; removing them causes the scanner to re-import sessions from disk on the next tick.
 - **`internal/pricing`** — loads `pricing.json` (rates per 1 M tokens, not per token). `CostFor` looks up by model name; tier fallback is present in the JSON but not yet wired in `CostFor`. The `plan` parameter accepted by `CostFor` is currently unused — cost is always token-based. The `monthly` field on plan entries is used by the Overview frontend only: subscription plans (monthly > 0) show the flat monthly fee as the headline cost with the token-equivalent below.
 - **`internal/tips`** — three rule-based tips (`cache-hit-low`, `high-output-ratio`, `many-sessions`). `AllTips` calls `OverviewTotals` and filters against dismissed tip keys.
 - **`app/app.go`** — `App` struct with all exported methods Wails binds to `window.go.App.*()`. `Startup` launches `scanLoop` (30 s ticker, emits `"scan"` Wails event after changes).
@@ -85,13 +85,19 @@ The Wails WebView2 window runs in a goroutine; `systray.Run` must own the OS mai
 
 `frontend/` is served by Wails as embedded assets (no build step). `frontend/web/app.js` is the SPA entry point:
 
-- `_apiMap` maps URL paths to `window.go.App.*()` calls — this replaces all `fetch()` calls.
+- `_apiMap` maps URL paths to `window.go.app.App.*()` calls — this replaces all `fetch()` calls.
 - `api(path)` parses path + query string and routes to the right binding.
 - Hash router: `#/overview`, `#/prompts`, `#/sessions`, `#/sessions/<id>`, `#/projects`, `#/skills`, `#/tips`, `#/settings`.
 - `window.runtime.EventsOn('scan', () => render())` replaces SSE for live refresh.
 - `fmt.htmlSafe()` must be used for any user-derived string placed in innerHTML.
 
 Route modules live in `frontend/web/routes/*.js`. Each exports a default `async function(root)` that sets `root.innerHTML`.
+
+**JS binding namespace:** the correct path is `window.go.app.App.*` (lowercase `app` = Go package name). `window.go.App.*` silently hangs — every call blocks forever. Use `const App = window.go.app.App` alias so there is one place to fix if the package name changes.
+
+**Vue inspector SPA** lives at `frontend/inspector/` (Vite + Vue 3, bundled to `frontend/web/app.bundle.js`). The `wails.json` `frontend:build` command uses `--prefix inspector` — Wails runs lifecycle commands from the `frontend/` directory, so `--prefix frontend/inspector` would double the path. `vite.config.ts` must `define: { 'process.env.NODE_ENV': '"production"' }` for IIFE builds — Vue's dev-mode checks reference it and the bundle silently fails without this define. Generated Wails bindings land in `frontend/web/wailsjs/` (gitignored); regenerate with `wails build` (without `-skipbindings`). Runtime calls via `window.go.app.App.*` work without stubs.
+
+**WebView2 context menu** is disabled in production Wails builds. Any right-click UX must be implemented as a custom JS context menu (see `CalculatorView.vue` for the pattern).
 
 ### SQL conventions
 
