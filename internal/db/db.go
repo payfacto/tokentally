@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_model     ON messages(model);
 CREATE INDEX IF NOT EXISTS idx_messages_msgid     ON messages(session_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_parent    ON messages(parent_uuid);
 CREATE TABLE IF NOT EXISTS tool_calls (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            INTEGER PRIMARY KEY,
   message_uuid  TEXT    NOT NULL,
   session_id    TEXT    NOT NULL,
   project_slug  TEXT    NOT NULL,
@@ -236,47 +236,190 @@ func initSchema(conn *sql.DB) error {
 	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tools_use_id ON tool_calls(tool_use_id)`); err != nil {
 		return fmt.Errorf("db.Open idx_tools_use_id: %w", err)
 	}
-	if err := applyOneTimeFixUserContent(conn); err != nil {
-		return err
-	}
-	return applyFTSBackfill(conn)
+	return applyMigrations(conn)
 }
 
-// applyOneTimeFixUserContent resets all file-scan states the first time it
-// runs so the scanner re-processes files that stored NULL prompt_text for
-// user messages whose content was a plain string (not a content-block array).
-// The fix flag is stored in the plan table so this runs exactly once.
-func applyOneTimeFixUserContent(conn *sql.DB) error {
-	var v string
-	_ = conn.QueryRow(`SELECT v FROM plan WHERE k='fix_user_string_content'`).Scan(&v)
-	if v == "1" {
+// targetSchemaVersion is the schema generation this binary expects. Bump it
+// whenever a new migration is appended to the migrations slice.
+const targetSchemaVersion = 3
+
+// migrations are applied in order; index N produces schema version N+1.
+// To add a new one: append the function and bump targetSchemaVersion.
+var migrations = []func(*sql.DB) error{
+	migrateFixUserStringContent,
+	migrateFTSBackfill,
+	migrateDropToolCallsAutoincrement,
+}
+
+// applyMigrations runs every migration whose version is greater than the
+// version recorded in the plan table. Each migration is responsible for
+// being safe to re-run if a previous attempt was interrupted.
+func applyMigrations(conn *sql.DB) error {
+	current := readSchemaVersion(conn)
+	if current >= targetSchemaVersion {
 		return nil
 	}
+	for v := current; v < targetSchemaVersion; v++ {
+		if err := migrations[v](conn); err != nil {
+			return fmt.Errorf("migration %d→%d: %w", v, v+1, err)
+		}
+	}
+	_, err := conn.Exec(
+		`INSERT OR REPLACE INTO plan (k,v) VALUES ('schema_version',?)`,
+		strconv.Itoa(targetSchemaVersion),
+	)
+	if err != nil {
+		return fmt.Errorf("set schema_version: %w", err)
+	}
+	return nil
+}
+
+// readSchemaVersion returns the recorded schema version, falling back to
+// inferring it from legacy per-migration gate flags so existing DBs that
+// pre-date the schema_version row don't repeat already-applied work.
+func readSchemaVersion(conn *sql.DB) int {
+	var v string
+	if err := conn.QueryRow(`SELECT v FROM plan WHERE k='schema_version'`).Scan(&v); err == nil {
+		if n, _ := strconv.Atoi(v); n > 0 {
+			return n
+		}
+	}
+	if hasLegacyGate(conn, "fts_backfill_done") {
+		return 2 // FTS backfill (and by implication the fix-user-content reset) was done.
+	}
+	if hasLegacyGate(conn, "fix_user_string_content") {
+		return 1
+	}
+	return 0
+}
+
+func hasLegacyGate(conn *sql.DB, key string) bool {
+	var v string
+	err := conn.QueryRow(`SELECT v FROM plan WHERE k=?`, key).Scan(&v)
+	return err == nil && v == "1"
+}
+
+// SchemaVersion returns the recorded schema generation. Useful for diagnostics.
+func SchemaVersion(p *Pool) (int, error) {
+	var v string
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='schema_version'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("SchemaVersion: %w", err)
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("SchemaVersion parse %q: %w", v, err)
+	}
+	return n, nil
+}
+
+// migrateFixUserStringContent (v0→v1) resets all file-scan states so the
+// scanner re-processes files that stored NULL prompt_text for user messages
+// whose content was a plain string (not a content-block array).
+func migrateFixUserStringContent(conn *sql.DB) error {
 	if _, err := conn.Exec(`DELETE FROM files`); err != nil {
-		return fmt.Errorf("fix_user_string_content reset files: %w", err)
+		return fmt.Errorf("reset files: %w", err)
 	}
 	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('fix_user_string_content','1')`)
 	return err
 }
 
-// applyFTSBackfill populates messages_fts from existing messages rows on the
-// first run after the FTS5 index was added to the schema. Subsequent INSERTs
-// and DELETEs are kept in sync by triggers.
-func applyFTSBackfill(conn *sql.DB) error {
-	var v string
-	_ = conn.QueryRow(`SELECT v FROM plan WHERE k='fts_backfill_done'`).Scan(&v)
-	if v == "1" {
-		return nil
-	}
+// migrateFTSBackfill (v1→v2) populates messages_fts from existing messages on
+// the first run after the FTS5 index was added. Subsequent INSERTs and
+// DELETEs are kept in sync by triggers.
+func migrateFTSBackfill(conn *sql.DB) error {
 	if _, err := conn.Exec(
 		`INSERT INTO messages_fts(rowid, prompt_text)
 		 SELECT rowid, prompt_text FROM messages
 		 WHERE prompt_text IS NOT NULL AND prompt_text != ''`,
 	); err != nil {
-		return fmt.Errorf("fts_backfill: %w", err)
+		return fmt.Errorf("fts backfill: %w", err)
 	}
 	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('fts_backfill_done','1')`)
 	return err
+}
+
+// migrateDropToolCallsAutoincrement (v2→v3) recreates the tool_calls table
+// without AUTOINCREMENT on the id column. Plain INTEGER PRIMARY KEY is
+// sufficient (rowid alias, monotonic) and avoids the per-INSERT
+// sqlite_sequence write the AUTOINCREMENT keyword forces.
+//
+// Detects "AUTOINCREMENT" in the stored CREATE TABLE so fresh databases
+// (which never had it) and re-runs are no-ops.
+func migrateDropToolCallsAutoincrement(conn *sql.DB) error {
+	var sqlText string
+	err := conn.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_calls'`,
+	).Scan(&sqlText)
+	if err != nil {
+		return fmt.Errorf("read tool_calls schema: %w", err)
+	}
+	if !strings.Contains(strings.ToUpper(sqlText), "AUTOINCREMENT") {
+		return nil // already migrated or fresh DB
+	}
+
+	tx, err := conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmts := []string{
+		`CREATE TABLE tool_calls_new (
+		   id            INTEGER PRIMARY KEY,
+		   message_uuid  TEXT    NOT NULL,
+		   session_id    TEXT    NOT NULL,
+		   project_slug  TEXT    NOT NULL,
+		   tool_name     TEXT    NOT NULL,
+		   target        TEXT,
+		   result_tokens INTEGER,
+		   is_error      INTEGER NOT NULL DEFAULT 0,
+		   timestamp     TEXT    NOT NULL,
+		   tool_use_id   TEXT,
+		   input_json    TEXT,
+		   output_text   TEXT,
+		   duration_ms   INTEGER
+		 )`,
+		`INSERT INTO tool_calls_new
+		   (id, message_uuid, session_id, project_slug, tool_name, target,
+		    result_tokens, is_error, timestamp, tool_use_id, input_json,
+		    output_text, duration_ms)
+		 SELECT id, message_uuid, session_id, project_slug, tool_name, target,
+		        result_tokens, is_error, timestamp, tool_use_id, input_json,
+		        output_text, duration_ms
+		   FROM tool_calls`,
+		`DROP TABLE tool_calls`,
+		`ALTER TABLE tool_calls_new RENAME TO tool_calls`,
+		// Recreate every index that lived on the old table.
+		`CREATE INDEX idx_tools_session      ON tool_calls(session_id)`,
+		`CREATE INDEX idx_tools_name         ON tool_calls(tool_name)`,
+		`CREATE INDEX idx_tools_target       ON tool_calls(target)`,
+		`CREATE INDEX idx_tools_message_uuid ON tool_calls(message_uuid)`,
+		`CREATE INDEX idx_tools_use_id       ON tool_calls(tool_use_id)`,
+		// Drop the now-orphan sqlite_sequence row so it doesn't grow on
+		// future restarts.
+		`DELETE FROM sqlite_sequence WHERE name='tool_calls'`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return fmt.Errorf("recreate tool_calls (%q): %w", firstLine(s), err)
+		}
+	}
+	return tx.Commit()
+}
+
+// firstLine returns the first non-blank line of s, used to make migration
+// errors point at the failing statement without dumping whole CREATE bodies.
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return s
 }
 
 // addColumnIfMissing runs ALTER TABLE ADD COLUMN and ignores duplicate-column errors,
