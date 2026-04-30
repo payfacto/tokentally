@@ -199,3 +199,71 @@
 - The Prompts page description still reads "Your latest prompts" — could add a note that subagent and hook entries are also included
 - Hook row `session_id` links may not navigate correctly if the attachment record's `session_id` belongs to a parent session that has no entries in the Sessions view — worth testing the link behaviour on a hook row
 - The `is_sidechain` field is now exposed but not used as a filter — consider adding a toggle in the Prompts view to show/hide subagent prompts for users who only want to see their own input
+
+## Session — 2026-04-30 07:13
+
+### What Was Done
+
+- **Fixed search hang** (db.go) — `SetMaxOpenConns(1)` was serializing every DB op through one connection; while the scanner held it in a per-file write tx, `SearchPrompts` blocked indefinitely at the Go pool layer (never reaching SQLite, so `busy_timeout` never fired). Raised limit to 4 so WAL-mode concurrent readers can proceed during writes. (commit `d5187a4`)
+- **Fixed blank-screen on Search tab** (PromptsView.vue) — Go's `scanMaps` returns a `nil` slice on zero results, which Wails serializes as JSON `null`. Assigning `null` to `searchRows`/`rows` then evaluating `null.length` in the `v-if` guard threw a TypeError that Vue silently caught and rendered as blank. Patched at the assignment sites (`?? []`) and added optional chaining on the two template guards. (commit `2c2d62c`)
+- **G25 cleanup** — extracted `1e9` (nanos→sec) to `nanosPerSec` constant in db.go for parity with scanner.go.
+- **Rebuilt Windows binary** at `build/bin/tokentally.exe` with both fixes.
+- **Comprehensive database review** (read-only, no code changes) — surfaced 14 issues across schema, queries, concurrency, and minor cleanup. Top findings recorded in "Inferred Next Steps" below.
+
+### Files Changed
+
+- `internal/db/db.go` — `SetMaxOpenConns(1)` → `SetMaxOpenConns(4)`; added `nanosPerSec` constant; committed
+- `frontend/inspector/src/views/PromptsView.vue` — null-coalesce in `fetchRows()` / `doSearch()`; optional chaining on `displayRows?.length` in two `v-if` guards; committed
+
+### Decisions Made
+
+- **Pool size of 4, not unlimited** — WAL allows N readers + 1 writer; 4 is enough for the UI's concurrent reads while keeping the pool bounded. Did not split into separate read/write pools yet — that's a deferred refactor (see Next Steps #4).
+- **Frontend defensive fix instead of Go-side fix for `nil` slice** — fixed at the consumer because the same bug affects all 8+ callers of `scanMaps`. The proper fix is to make `scanMaps` return `[]map[string]any{}` (item #1 in next steps), but the frontend guard is now in place as defense-in-depth.
+
+### Open Questions / Blockers
+
+- None
+
+## Running state
+
+- Background processes: none
+- Dev servers / ports: none
+- Open worktrees / branches: none
+- Unstaged working tree: `frontend/inspector/src/views/OverageView.vue` (pre-existing, untouched this session)
+
+### Inferred Next Steps
+
+The user requested an expert DB review and asked whether to apply the low-risk fixes. The review identified the following, **in priority order**:
+
+**Quick wins (one commit, all additive, low risk):**
+
+1. **Add three missing indexes** to the schema in `internal/db/db.go`:
+   - `CREATE INDEX IF NOT EXISTS idx_tools_message_uuid ON tool_calls(message_uuid)` — fixes scanner O(N²) on rescans, used by `batchQueryToolCalls`, `processLine` DELETE, `evictPriorSnapshots` DELETE
+   - `CREATE INDEX IF NOT EXISTS idx_tools_use_id ON tool_calls(tool_use_id)` — fixes `pairToolResults` UPDATE full-scan
+   - `CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_uuid)` — fixes the `LEFT JOIN ... ON a.parent_uuid = u.uuid` in `SearchPrompts` and `ExpensivePrompts`
+2. **Fix `scanMaps` to return `[]map[string]any{}` not `nil`** — root-cause fix for the blank-screen class of bugs; affects all callers.
+3. **Add `synchronous=NORMAL`** to the DSN in `Open()` — official WAL recommendation, ~2× write speedup, durable across app crashes.
+4. **Make `SearchPrompts` case-insensitive** — add `COLLATE NOCASE` to the `LIKE` clause; users expect case-insensitive search.
+
+**Larger refactors (each its own PR):**
+
+5. **Split read/write pools** — current `SetMaxOpenConns(4)` allows concurrent writers, which will hit `database is locked` after 5s if the scanner overlaps with any UI write (e.g., `UpsertPricingModel`). Two `*sql.DB` handles: read pool with N=4, write pool with N=1. Forces serialization at the Go layer, eliminates BUSY surprises.
+6. **FTS5 virtual table** for `messages.prompt_text` — current `LIKE '%query%'` cannot use any index; FTS5 with `content=messages, content_rowid=rowid` plus sync triggers takes search from O(N) to O(matches).
+7. **Batch `distinctCWDs`** — N+1 query in `ProjectSummary` and `RecentSessions` (one extra query per project/session). Replace with a single `GROUP BY project_slug` query and assemble in Go.
+8. **Disambiguate the `LEFT JOIN` in `SearchPrompts`/`ExpensivePrompts`** — when a user message has multiple assistant children (streaming-snapshot replay edge case), the join picks an arbitrary one. Pick the earliest by `MIN(timestamp)` or use a correlated subquery.
+9. **Schema version tracking** — add a `schema_version` row in `plan` table so future migrations know what's applied.
+10. **Drop `AUTOINCREMENT` from `tool_calls.id`** — `INTEGER PRIMARY KEY` alone is sufficient and avoids the `sqlite_sequence` write-amplification.
+11. **Periodic `PRAGMA wal_checkpoint(TRUNCATE)`** — call at end of each scan loop iteration to keep `.wal` file size bounded for long-running processes.
+
+**Verification before merging quick wins:**
+
+```sql
+EXPLAIN QUERY PLAN SELECT * FROM tool_calls WHERE message_uuid='abc';
+-- before: SCAN tool_calls   after: SEARCH tool_calls USING INDEX idx_tools_message_uuid
+
+EXPLAIN QUERY PLAN
+SELECT u.uuid FROM messages u LEFT JOIN messages a ON a.parent_uuid=u.uuid AND a.type='assistant' LIMIT 1;
+-- before: SCAN a   after: SEARCH a USING INDEX idx_messages_parent
+```
+
+The user asked "Want me to apply 1-6 now?" — this is the open question to pick up at the start of the next session.

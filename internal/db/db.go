@@ -106,20 +106,79 @@ const nanosPerSec = 1e9 // UnixNano → seconds for mtime/scanned_at storage
 // clock without requiring real wall-clock time.
 var nowFunc = func() float64 { return float64(time.Now().UnixNano()) / nanosPerSec }
 
+// Pool holds two database/sql handles to the same SQLite database under WAL mode.
+//
+// Read accepts SELECT-only queries and allows multiple concurrent connections so
+// reads never block on writes.
+//
+// Write accepts all mutations and is limited to a single connection so concurrent
+// Go writers queue at the pool layer instead of hitting "database is locked"
+// after busy_timeout expires inside SQLite.
+//
+// For :memory: paths both fields share one handle since each :memory: connection
+// is its own database.
+type Pool struct {
+	Read  *sql.DB
+	Write *sql.DB
+}
+
+// Close closes the underlying handles. When Read and Write share a handle
+// (the :memory: case) it is closed once.
+func (p *Pool) Close() error {
+	if p.Read == p.Write {
+		return p.Write.Close()
+	}
+	werr := p.Write.Close()
+	rerr := p.Read.Close()
+	if werr != nil {
+		return werr
+	}
+	return rerr
+}
+
 // Open opens (or creates) the SQLite database at path and applies the schema.
-func Open(path string) (*sql.DB, error) {
-	dsn := path
-	if path != ":memory:" {
-		dsn = path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+// File-backed databases get separate read and write pools; :memory: shares one
+// handle.
+func Open(path string) (*Pool, error) {
+	if path == ":memory:" {
+		conn, err := sql.Open("sqlite", path)
+		if err != nil {
+			return nil, fmt.Errorf("db.Open %s: %w", path, err)
+		}
+		if err := initSchema(conn); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return &Pool{Read: conn, Write: conn}, nil
 	}
-	conn, err := sql.Open("sqlite", dsn)
+
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+
+	write, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("db.Open %s: %w", path, err)
+		return nil, fmt.Errorf("db.Open write %s: %w", path, err)
 	}
-	conn.SetMaxOpenConns(4) // WAL mode supports concurrent readers; 1 caused reads to block behind scanner writes
+	write.SetMaxOpenConns(1)
+	if err := initSchema(write); err != nil {
+		write.Close()
+		return nil, err
+	}
+
+	read, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		write.Close()
+		return nil, fmt.Errorf("db.Open read %s: %w", path, err)
+	}
+	read.SetMaxOpenConns(4)
+
+	return &Pool{Read: read, Write: write}, nil
+}
+
+// initSchema applies the static schema, column migrations, post-migration
+// indexes, and one-time fixes against a single connection.
+func initSchema(conn *sql.DB) error {
 	if _, err := conn.Exec(schema); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("db.Open schema: %w", err)
+		return fmt.Errorf("db.Open schema: %w", err)
 	}
 	for _, m := range []struct{ table, column, def string }{
 		{"messages", "thinking_text", "TEXT"},
@@ -131,21 +190,15 @@ func Open(path string) (*sql.DB, error) {
 		{"tool_calls", "duration_ms", "INTEGER"},
 	} {
 		if err := addColumnIfMissing(conn, m.table, m.column, m.def); err != nil {
-			conn.Close()
-			return nil, err
+			return err
 		}
 	}
 	// Index on tool_use_id must be created after addColumnIfMissing — the column
 	// is added via migration, not the static schema.
 	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tools_use_id ON tool_calls(tool_use_id)`); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("db.Open idx_tools_use_id: %w", err)
+		return fmt.Errorf("db.Open idx_tools_use_id: %w", err)
 	}
-	if err := applyOneTimeFixUserContent(conn); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	return conn, nil
+	return applyOneTimeFixUserContent(conn)
 }
 
 // applyOneTimeFixUserContent resets all file-scan states the first time it
@@ -283,7 +336,7 @@ func BestProjectName(cwds []string, slug string) string {
 }
 
 // OverviewTotals returns aggregate token counts, session count, and turn count.
-func OverviewTotals(conn *sql.DB, since, until string) (map[string]any, error) {
+func OverviewTotals(p *Pool, since, until string) (map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	q := `
 SELECT COUNT(DISTINCT session_id) AS sessions,
@@ -295,7 +348,7 @@ SELECT COUNT(DISTINCT session_id) AS sessions,
        COALESCE(SUM(cache_create_1h_tokens),0) AS cache_create_1h_tokens
 FROM messages WHERE 1=1` + rng
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("OverviewTotals: %w", err)
 	}
@@ -314,7 +367,7 @@ FROM messages WHERE 1=1` + rng
 // SearchPrompts returns user/hook prompts matching an optional text query,
 // filtered by type and date range. types is a comma-separated list of
 // "user", "subagent", "hook". from/to are YYYY-MM-DD date strings.
-func SearchPrompts(conn *sql.DB, query, types, from, to string) ([]map[string]any, error) {
+func SearchPrompts(p *Pool, query, types, from, to string) ([]map[string]any, error) {
 	var whereParts []string
 	var args []any
 
@@ -382,7 +435,7 @@ WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt
 ORDER BY u.timestamp DESC
 LIMIT 200`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("SearchPrompts: %w", err)
 	}
@@ -393,7 +446,7 @@ LIMIT 200`
 // ExpensivePrompts returns user and hook prompts joined with the following
 // assistant turn, ordered by billable_tokens DESC (sort="tokens") or
 // timestamp DESC (sort="recent").
-func ExpensivePrompts(conn *sql.DB, limit int, sort string) ([]map[string]any, error) {
+func ExpensivePrompts(p *Pool, limit int, sort string) ([]map[string]any, error) {
 	order := "billable_tokens DESC"
 	if sort == "recent" {
 		order = "u.timestamp DESC"
@@ -416,7 +469,7 @@ WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt
 ORDER BY ` + order + `
 LIMIT ?`
 
-	rows, err := conn.Query(q, limit)
+	rows, err := p.Read.Query(q, limit)
 	if err != nil {
 		return nil, fmt.Errorf("ExpensivePrompts: %w", err)
 	}
@@ -426,7 +479,7 @@ LIMIT ?`
 
 // ProjectSummary returns per-project aggregates ordered by billable_tokens DESC.
 // Each row includes a "project_name" field derived from BestProjectName.
-func ProjectSummary(conn *sql.DB, since, until string) ([]map[string]any, error) {
+func ProjectSummary(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	q := `
 SELECT project_slug,
@@ -442,7 +495,7 @@ SELECT project_slug,
 FROM messages WHERE 1=1` + rng + `
 GROUP BY project_slug ORDER BY billable_tokens DESC`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ProjectSummary: %w", err)
 	}
@@ -455,7 +508,7 @@ GROUP BY project_slug ORDER BY billable_tokens DESC`
 
 	for _, r := range results {
 		slug, _ := r["project_slug"].(string)
-		cwds, err := distinctCWDs(conn, slug)
+		cwds, err := distinctCWDs(p, slug)
 		if err != nil {
 			return nil, err
 		}
@@ -466,7 +519,7 @@ GROUP BY project_slug ORDER BY billable_tokens DESC`
 
 // RecentSessions returns sessions ordered by last activity, newest first.
 // Pass a non-empty projectSlug to restrict results to a single project.
-func RecentSessions(conn *sql.DB, limit int, since, until, projectSlug string) ([]map[string]any, error) {
+func RecentSessions(p *Pool, limit int, since, until, projectSlug string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	slugClause := ""
 	if projectSlug != "" {
@@ -481,7 +534,7 @@ SELECT session_id, project_slug,
 FROM messages WHERE 1=1` + rng + slugClause + `
 GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 
-	rows, err := conn.Query(q, append(args, limit)...)
+	rows, err := p.Read.Query(q, append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("RecentSessions: %w", err)
 	}
@@ -496,7 +549,7 @@ GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 	for _, r := range results {
 		slug, _ := r["project_slug"].(string)
 		if _, ok := slugCache[slug]; !ok {
-			cwds, err := distinctCWDs(conn, slug)
+			cwds, err := distinctCWDs(p, slug)
 			if err != nil {
 				return nil, err
 			}
@@ -508,14 +561,14 @@ GROUP BY session_id ORDER BY ended DESC LIMIT ?`
 }
 
 // ToolBreakdown returns per-tool call counts, excluding _tool_result rows.
-func ToolBreakdown(conn *sql.DB, since, until string) ([]map[string]any, error) {
+func ToolBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	q := `
 SELECT tool_name, COUNT(*) AS calls, COALESCE(SUM(result_tokens),0) AS result_tokens
 FROM tool_calls WHERE tool_name != '_tool_result'` + rng + `
 GROUP BY tool_name ORDER BY calls DESC`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ToolBreakdown: %w", err)
 	}
@@ -524,7 +577,7 @@ GROUP BY tool_name ORDER BY calls DESC`
 }
 
 // DailyBreakdown returns one row per calendar day with stacked token counts.
-func DailyBreakdown(conn *sql.DB, since, until string) ([]map[string]any, error) {
+func DailyBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	q := `
 SELECT substr(timestamp,1,10) AS day,
@@ -535,7 +588,7 @@ SELECT substr(timestamp,1,10) AS day,
 FROM messages WHERE timestamp IS NOT NULL` + rng + `
 GROUP BY day ORDER BY day ASC`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("DailyBreakdown: %w", err)
 	}
@@ -544,7 +597,7 @@ GROUP BY day ORDER BY day ASC`
 }
 
 // ModelBreakdown returns per-model token totals for assistant turns.
-func ModelBreakdown(conn *sql.DB, since, until string) ([]map[string]any, error) {
+func ModelBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
 	q := `
 SELECT COALESCE(model,'unknown') AS model, COUNT(*) AS turns,
@@ -557,7 +610,7 @@ FROM messages WHERE type='assistant'` + rng + `
 GROUP BY model
 ORDER BY (input_tokens+output_tokens+cache_create_5m_tokens+cache_create_1h_tokens) DESC`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ModelBreakdown: %w", err)
 	}
@@ -567,7 +620,7 @@ ORDER BY (input_tokens+output_tokens+cache_create_5m_tokens+cache_create_1h_toke
 
 // SkillBreakdown returns per-skill invocation counts from tool_calls where
 // tool_name='Skill'. tokens_per_call is null when the skill file size is unknown.
-func SkillBreakdown(conn *sql.DB, since, until string) ([]map[string]any, error) {
+func SkillBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "t.timestamp")
 	q := `
 SELECT t.target AS skill, COUNT(*) AS invocations,
@@ -578,7 +631,7 @@ LEFT JOIN skill_sizes ss ON ss.skill_name = t.target
 WHERE t.tool_name='Skill' AND t.target IS NOT NULL AND t.target!=''` + rng + `
 GROUP BY t.target ORDER BY invocations DESC`
 
-	rows, err := conn.Query(q, args...)
+	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("SkillBreakdown: %w", err)
 	}
@@ -588,8 +641,10 @@ GROUP BY t.target ORDER BY invocations DESC`
 
 // UpsertSkillSize records the byte size of a skill's SKILL.md file.
 // Subsequent calls with the same name update the stored size.
-func UpsertSkillSize(conn *sql.DB, skillName string, fileBytes int64) error {
-	_, err := conn.Exec(
+// Accepts dbExec so the scanner can pass an active write transaction; otherwise
+// it would deadlock on the single Write-pool connection that the tx holds.
+func UpsertSkillSize(exec dbExec, skillName string, fileBytes int64) error {
+	_, err := exec.Exec(
 		`INSERT INTO skill_sizes (skill_name, file_bytes, updated_at) VALUES (?,?,?)
 		 ON CONFLICT(skill_name) DO UPDATE SET file_bytes=excluded.file_bytes, updated_at=excluded.updated_at`,
 		skillName, fileBytes, time.Now().UTC().Format(time.RFC3339),
@@ -597,10 +652,17 @@ func UpsertSkillSize(conn *sql.DB, skillName string, fileBytes int64) error {
 	return err
 }
 
+// dbExec lets helpers run against either *sql.DB or *sql.Tx — used so the
+// scanner can pass an open transaction without UpsertSkillSize trying to
+// acquire a second connection from the single-conn Write pool.
+type dbExec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // GetPlan returns the stored plan name, defaulting to "api".
-func GetPlan(conn *sql.DB) (string, error) {
+func GetPlan(p *Pool) (string, error) {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='plan'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='plan'`).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "api", nil
 	}
@@ -611,8 +673,8 @@ func GetPlan(conn *sql.DB) (string, error) {
 }
 
 // SetPlan stores the plan name.
-func SetPlan(conn *sql.DB, plan string) error {
-	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('plan',?)`, plan)
+func SetPlan(p *Pool, plan string) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('plan',?)`, plan)
 	if err != nil {
 		return fmt.Errorf("SetPlan: %w", err)
 	}
@@ -621,9 +683,9 @@ func SetPlan(conn *sql.DB, plan string) error {
 
 // GetRetentionDays reads the retention policy from the plan table.
 // Returns 0 if not set (= keep forever / auto-purge disabled).
-func GetRetentionDays(conn *sql.DB) (int, error) {
+func GetRetentionDays(p *Pool) (int, error) {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='retention_days'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='retention_days'`).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
@@ -639,8 +701,8 @@ func GetRetentionDays(conn *sql.DB) (int, error) {
 
 // SetRetentionDays persists the retention policy.
 // days=0 effectively disables auto-purge.
-func SetRetentionDays(conn *sql.DB, days int) error {
-	_, err := conn.Exec(
+func SetRetentionDays(p *Pool, days int) error {
+	_, err := p.Write.Exec(
 		`INSERT OR REPLACE INTO plan (k,v) VALUES ('retention_days',?)`,
 		strconv.Itoa(days),
 	)
@@ -655,12 +717,12 @@ func SetRetentionDays(conn *sql.DB, days int) error {
 // The files table is left intact so the scanner skips already-processed paths
 // and does not re-import the pruned data.
 // days=0 is a no-op.
-func PurgeMessages(conn *sql.DB, days int) (int64, error) {
+func PurgeMessages(p *Pool, days int) (int64, error) {
 	if days <= 0 {
 		return 0, nil
 	}
 	cutoff := fmt.Sprintf("-%d days", days)
-	tx, err := conn.Begin()
+	tx, err := p.Write.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("PurgeMessages: begin tx: %w", err)
 	}
@@ -687,8 +749,8 @@ func PurgeMessages(conn *sql.DB, days int) (int64, error) {
 }
 
 // DismissTip records a dismissed tip key with the current Unix timestamp.
-func DismissTip(conn *sql.DB, key string) error {
-	_, err := conn.Exec(
+func DismissTip(p *Pool, key string) error {
+	_, err := p.Write.Exec(
 		`INSERT OR IGNORE INTO dismissed_tips (tip_key, dismissed_at) VALUES (?,?)`,
 		key, nowFunc(),
 	)
@@ -699,8 +761,8 @@ func DismissTip(conn *sql.DB, key string) error {
 }
 
 // DismissedTips returns the set of dismissed tip keys.
-func DismissedTips(conn *sql.DB) (map[string]bool, error) {
-	rows, err := conn.Query(`SELECT tip_key FROM dismissed_tips`)
+func DismissedTips(p *Pool) (map[string]bool, error) {
+	rows, err := p.Read.Query(`SELECT tip_key FROM dismissed_tips`)
 	if err != nil {
 		return nil, fmt.Errorf("DismissedTips: %w", err)
 	}
@@ -745,8 +807,8 @@ func scanMaps(rows *sql.Rows) ([]map[string]any, error) {
 }
 
 // GetPricingModels returns all model rate rows ordered by model name.
-func GetPricingModels(conn *sql.DB) ([]map[string]any, error) {
-	rows, err := conn.Query(
+func GetPricingModels(p *Pool) ([]map[string]any, error) {
+	rows, err := p.Read.Query(
 		`SELECT model_name, tier, input, output, cache_read, cache_create_5m, cache_create_1h
 		 FROM pricing_models ORDER BY model_name`,
 	)
@@ -758,8 +820,8 @@ func GetPricingModels(conn *sql.DB) ([]map[string]any, error) {
 }
 
 // UpsertPricingModel inserts or replaces a model rate row.
-func UpsertPricingModel(conn *sql.DB, name, tier string, input, output, cacheRead, cache5m, cache1h float64) error {
-	_, err := conn.Exec(
+func UpsertPricingModel(p *Pool, name, tier string, input, output, cacheRead, cache5m, cache1h float64) error {
+	_, err := p.Write.Exec(
 		`INSERT OR REPLACE INTO pricing_models
 		 (model_name, tier, input, output, cache_read, cache_create_5m, cache_create_1h)
 		 VALUES (?,?,?,?,?,?,?)`,
@@ -772,8 +834,8 @@ func UpsertPricingModel(conn *sql.DB, name, tier string, input, output, cacheRea
 }
 
 // DeletePricingModel removes a model rate row by name.
-func DeletePricingModel(conn *sql.DB, name string) error {
-	_, err := conn.Exec(`DELETE FROM pricing_models WHERE model_name=?`, name)
+func DeletePricingModel(p *Pool, name string) error {
+	_, err := p.Write.Exec(`DELETE FROM pricing_models WHERE model_name=?`, name)
 	if err != nil {
 		return fmt.Errorf("DeletePricingModel: %w", err)
 	}
@@ -781,8 +843,8 @@ func DeletePricingModel(conn *sql.DB, name string) error {
 }
 
 // DeleteAllPricingModels removes every model rate row (used for reset-to-defaults).
-func DeleteAllPricingModels(conn *sql.DB) error {
-	_, err := conn.Exec(`DELETE FROM pricing_models`)
+func DeleteAllPricingModels(p *Pool) error {
+	_, err := p.Write.Exec(`DELETE FROM pricing_models`)
 	if err != nil {
 		return fmt.Errorf("DeleteAllPricingModels: %w", err)
 	}
@@ -790,8 +852,8 @@ func DeleteAllPricingModels(conn *sql.DB) error {
 }
 
 // GetPricingPlans returns all plan rows ordered by monthly cost ascending.
-func GetPricingPlans(conn *sql.DB) ([]map[string]any, error) {
-	rows, err := conn.Query(`SELECT plan_key, label, monthly FROM pricing_plans ORDER BY monthly ASC`)
+func GetPricingPlans(p *Pool) ([]map[string]any, error) {
+	rows, err := p.Read.Query(`SELECT plan_key, label, monthly FROM pricing_plans ORDER BY monthly ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("GetPricingPlans: %w", err)
 	}
@@ -800,8 +862,8 @@ func GetPricingPlans(conn *sql.DB) ([]map[string]any, error) {
 }
 
 // UpsertPricingPlan inserts or replaces a plan row.
-func UpsertPricingPlan(conn *sql.DB, key, label string, monthly float64) error {
-	_, err := conn.Exec(
+func UpsertPricingPlan(p *Pool, key, label string, monthly float64) error {
+	_, err := p.Write.Exec(
 		`INSERT OR REPLACE INTO pricing_plans (plan_key, label, monthly) VALUES (?,?,?)`,
 		key, label, monthly,
 	)
@@ -812,8 +874,8 @@ func UpsertPricingPlan(conn *sql.DB, key, label string, monthly float64) error {
 }
 
 // DeletePricingPlan removes a plan row by key.
-func DeletePricingPlan(conn *sql.DB, key string) error {
-	_, err := conn.Exec(`DELETE FROM pricing_plans WHERE plan_key=?`, key)
+func DeletePricingPlan(p *Pool, key string) error {
+	_, err := p.Write.Exec(`DELETE FROM pricing_plans WHERE plan_key=?`, key)
 	if err != nil {
 		return fmt.Errorf("DeletePricingPlan: %w", err)
 	}
@@ -821,8 +883,8 @@ func DeletePricingPlan(conn *sql.DB, key string) error {
 }
 
 // DeleteAllPricingPlans removes every plan row (used for reset-to-defaults).
-func DeleteAllPricingPlans(conn *sql.DB) error {
-	_, err := conn.Exec(`DELETE FROM pricing_plans`)
+func DeleteAllPricingPlans(p *Pool) error {
+	_, err := p.Write.Exec(`DELETE FROM pricing_plans`)
 	if err != nil {
 		return fmt.Errorf("DeleteAllPricingPlans: %w", err)
 	}
@@ -830,9 +892,9 @@ func DeleteAllPricingPlans(conn *sql.DB) error {
 }
 
 // GetCurrency returns the stored currency code, defaulting to "CAD".
-func GetCurrency(conn *sql.DB) (string, error) {
+func GetCurrency(p *Pool) (string, error) {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='currency'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='currency'`).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "CAD", nil
 	}
@@ -843,8 +905,8 @@ func GetCurrency(conn *sql.DB) (string, error) {
 }
 
 // SetCurrency stores the currency code.
-func SetCurrency(conn *sql.DB, currency string) error {
-	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('currency',?)`, currency)
+func SetCurrency(p *Pool, currency string) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('currency',?)`, currency)
 	if err != nil {
 		return fmt.Errorf("SetCurrency: %w", err)
 	}
@@ -852,9 +914,9 @@ func SetCurrency(conn *sql.DB, currency string) error {
 }
 
 // IsPricingSeeded returns true if the pricing tables have been populated from defaults.
-func IsPricingSeeded(conn *sql.DB) (bool, error) {
+func IsPricingSeeded(p *Pool) (bool, error) {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='pricing_seeded'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='pricing_seeded'`).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -865,8 +927,8 @@ func IsPricingSeeded(conn *sql.DB) (bool, error) {
 }
 
 // MarkPricingSeeded records that the pricing tables have been seeded.
-func MarkPricingSeeded(conn *sql.DB) error {
-	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('pricing_seeded','1')`)
+func MarkPricingSeeded(p *Pool) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('pricing_seeded','1')`)
 	if err != nil {
 		return fmt.Errorf("MarkPricingSeeded: %w", err)
 	}
@@ -874,8 +936,8 @@ func MarkPricingSeeded(conn *sql.DB) error {
 }
 
 // GetExchangeRates returns all stored currency→rate pairs (base: USD).
-func GetExchangeRates(conn *sql.DB) (map[string]float64, error) {
-	rows, err := conn.Query(`SELECT currency, rate FROM exchange_rates`)
+func GetExchangeRates(p *Pool) (map[string]float64, error) {
+	rows, err := p.Read.Query(`SELECT currency, rate FROM exchange_rates`)
 	if err != nil {
 		return nil, fmt.Errorf("GetExchangeRates: %w", err)
 	}
@@ -894,8 +956,8 @@ func GetExchangeRates(conn *sql.DB) (map[string]float64, error) {
 }
 
 // SeedExchangeRate inserts a rate only if none exists for that currency (preserves user overrides).
-func SeedExchangeRate(conn *sql.DB, currency string, rate float64) error {
-	_, err := conn.Exec(`INSERT OR IGNORE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
+func SeedExchangeRate(p *Pool, currency string, rate float64) error {
+	_, err := p.Write.Exec(`INSERT OR IGNORE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
 	if err != nil {
 		return fmt.Errorf("SeedExchangeRate: %w", err)
 	}
@@ -903,8 +965,8 @@ func SeedExchangeRate(conn *sql.DB, currency string, rate float64) error {
 }
 
 // SetExchangeRate inserts or replaces a rate for a currency (used by user edits and API refresh).
-func SetExchangeRate(conn *sql.DB, currency string, rate float64) error {
-	_, err := conn.Exec(`INSERT OR REPLACE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
+func SetExchangeRate(p *Pool, currency string, rate float64) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
 	if err != nil {
 		return fmt.Errorf("SetExchangeRate: %w", err)
 	}
@@ -912,9 +974,9 @@ func SetExchangeRate(conn *sql.DB, currency string, rate float64) error {
 }
 
 // GetExchangeApiKey returns the stored exchangerate-api.com API key, decrypted.
-func GetExchangeApiKey(conn *sql.DB) (string, error) {
+func GetExchangeApiKey(p *Pool) (string, error) {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='exchange_api_key'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='exchange_api_key'`).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -925,12 +987,12 @@ func GetExchangeApiKey(conn *sql.DB) (string, error) {
 }
 
 // SetExchangeApiKey encrypts and stores the exchangerate-api.com API key.
-func SetExchangeApiKey(conn *sql.DB, key string) error {
+func SetExchangeApiKey(p *Pool, key string) error {
 	encrypted, err := encryptAPIKey(key)
 	if err != nil {
 		return fmt.Errorf("SetExchangeApiKey: %w", err)
 	}
-	_, err = conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('exchange_api_key',?)`, encrypted)
+	_, err = p.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('exchange_api_key',?)`, encrypted)
 	if err != nil {
 		return fmt.Errorf("SetExchangeApiKey: %w", err)
 	}
@@ -938,8 +1000,8 @@ func SetExchangeApiKey(conn *sql.DB, key string) error {
 }
 
 // distinctCWDs returns all distinct non-null cwd values for a project slug.
-func distinctCWDs(conn *sql.DB, slug string) ([]string, error) {
-	rows, err := conn.Query(
+func distinctCWDs(p *Pool, slug string) ([]string, error) {
+	rows, err := p.Read.Query(
 		`SELECT DISTINCT cwd FROM messages WHERE project_slug=? AND cwd IS NOT NULL`, slug,
 	)
 	if err != nil {

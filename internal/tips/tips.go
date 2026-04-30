@@ -1,8 +1,6 @@
 package tips
 
 import (
-	"database/sql"
-
 	"tokentally/internal/db"
 )
 
@@ -80,12 +78,12 @@ func intVal(v any) int64 {
 }
 
 // AllTips returns applicable, non-dismissed tips as maps ready for JSON serialisation.
-func AllTips(conn *sql.DB) ([]map[string]any, error) {
-	dismissed, err := db.DismissedTips(conn)
+func AllTips(p *db.Pool) ([]map[string]any, error) {
+	dismissed, err := db.DismissedTips(p)
 	if err != nil {
 		return nil, err
 	}
-	stats, err := db.OverviewTotals(conn, "", "")
+	stats, err := db.OverviewTotals(p, "", "")
 	if err != nil {
 		return nil, err
 	}

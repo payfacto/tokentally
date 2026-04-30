@@ -1,7 +1,6 @@
 package db
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -56,8 +55,8 @@ type msgRow struct {
 // GetSessionChunks reconstructs a session as []SessionChunk from the messages
 // and tool_calls tables. It returns chunks ordered by message timestamp ASC.
 // Tool calls are fetched in a single batch query to avoid N+1 round-trips.
-func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
-	rows, err := conn.Query(`
+func GetSessionChunks(p *Pool, sessionID string) ([]SessionChunk, error) {
+	rows, err := p.Read.Query(`
 		SELECT uuid, type, timestamp,
 		       COALESCE(prompt_text,''), COALESCE(thinking_text,''),
 		       COALESCE(input_tokens,0), COALESCE(output_tokens,0), COALESCE(cache_read_tokens,0),
@@ -93,7 +92,7 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 			assistantUUIDs = append(assistantUUIDs, m.uuid)
 		}
 	}
-	toolCallMap, err := batchQueryToolCalls(conn, assistantUUIDs)
+	toolCallMap, err := batchQueryToolCalls(p, assistantUUIDs)
 	if err != nil {
 		return nil, fmt.Errorf("GetSessionChunks batch tools: %w", err)
 	}
@@ -107,7 +106,7 @@ func GetSessionChunks(conn *sql.DB, sessionID string) ([]SessionChunk, error) {
 
 // batchQueryToolCalls fetches all tool calls for the given message UUIDs in one
 // query and returns them grouped by message_uuid.
-func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChunk, error) {
+func batchQueryToolCalls(p *Pool, uuids []string) (map[string][]ToolCallChunk, error) {
 	if len(uuids) == 0 {
 		return map[string][]ToolCallChunk{}, nil
 	}
@@ -117,7 +116,7 @@ func batchQueryToolCalls(conn *sql.DB, uuids []string) (map[string][]ToolCallChu
 	for i, u := range uuids {
 		args[i] = u
 	}
-	rows, err := conn.Query(`
+	rows, err := p.Read.Query(`
 		SELECT message_uuid, COALESCE(tool_use_id,''), tool_name,
 		       COALESCE(input_json,'{}'), COALESCE(output_text,''),
 		       COALESCE(target,''),

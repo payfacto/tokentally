@@ -1,7 +1,6 @@
 package scanner_test
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,7 +21,7 @@ func testdataDir(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "testdata")
 }
 
-func openMem(t *testing.T) *sql.DB {
+func openMem(t *testing.T) *db.Pool {
 	t.Helper()
 	conn, err := db.Open(":memory:")
 	if err != nil {
@@ -92,7 +91,7 @@ func TestScanDir_ToolExtraction(t *testing.T) {
 	}
 
 	var toolName, target string
-	err := conn.QueryRow(
+	err := conn.Read.QueryRow(
 		`SELECT tool_name, target FROM tool_calls WHERE tool_name != '_tool_result' LIMIT 1`,
 	).Scan(&toolName, &target)
 	if err != nil {
@@ -113,7 +112,7 @@ func TestScanDir_PromptText(t *testing.T) {
 	}
 
 	var promptText string
-	err := conn.QueryRow(
+	err := conn.Read.QueryRow(
 		`SELECT prompt_text FROM messages WHERE type='user' LIMIT 1`,
 	).Scan(&promptText)
 	if err != nil {
@@ -141,7 +140,7 @@ func TestScanDir_StoresThinkingAndToolInput(t *testing.T) {
 	}
 
 	var thinkingText string
-	if err := conn.QueryRow(`SELECT COALESCE(thinking_text,'') FROM messages WHERE uuid='t2'`).Scan(&thinkingText); err != nil {
+	if err := conn.Read.QueryRow(`SELECT COALESCE(thinking_text,'') FROM messages WHERE uuid='t2'`).Scan(&thinkingText); err != nil {
 		t.Fatalf("query thinking_text: %v", err)
 	}
 	if thinkingText != "I should use bash" {
@@ -149,7 +148,7 @@ func TestScanDir_StoresThinkingAndToolInput(t *testing.T) {
 	}
 
 	var toolUseID, inputJSON string
-	if err := conn.QueryRow(`SELECT COALESCE(tool_use_id,''), COALESCE(input_json,'') FROM tool_calls WHERE tool_name='Bash'`).Scan(&toolUseID, &inputJSON); err != nil {
+	if err := conn.Read.QueryRow(`SELECT COALESCE(tool_use_id,''), COALESCE(input_json,'') FROM tool_calls WHERE tool_name='Bash'`).Scan(&toolUseID, &inputJSON); err != nil {
 		t.Fatalf("query tool_calls: %v", err)
 	}
 	if toolUseID != "tu-abc" {
@@ -179,7 +178,7 @@ func TestScanDir_PairsToolResults(t *testing.T) {
 
 	var outputText string
 	var durationMs int
-	err := conn.QueryRow(
+	err := conn.Read.QueryRow(
 		`SELECT COALESCE(output_text,''), COALESCE(duration_ms,0) FROM tool_calls WHERE tool_use_id='tu-xyz'`,
 	).Scan(&outputText, &durationMs)
 	if err != nil {
@@ -210,7 +209,7 @@ func TestScanDir_StoresCompaction(t *testing.T) {
 	}
 
 	var before, after int
-	err := conn.QueryRow(
+	err := conn.Read.QueryRow(
 		`SELECT COALESCE(tokens_before,0), COALESCE(tokens_after,0) FROM messages WHERE uuid='q2'`,
 	).Scan(&before, &after)
 	if err != nil {
@@ -246,7 +245,7 @@ func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 	}
 
 	var count int
-	if err := conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE message_id='msg-shared'`).Scan(&count); err != nil {
+	if err := conn.Read.QueryRow(`SELECT COUNT(*) FROM messages WHERE message_id='msg-shared'`).Scan(&count); err != nil {
 		t.Fatalf("count query: %v", err)
 	}
 	if count != 1 {
@@ -254,7 +253,7 @@ func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 	}
 
 	var uuid string
-	if err := conn.QueryRow(`SELECT uuid FROM messages WHERE message_id='msg-shared'`).Scan(&uuid); err != nil {
+	if err := conn.Read.QueryRow(`SELECT uuid FROM messages WHERE message_id='msg-shared'`).Scan(&uuid); err != nil {
 		t.Fatalf("uuid query: %v", err)
 	}
 	if uuid != "new-uuid" {

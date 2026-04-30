@@ -1,7 +1,6 @@
 package tips_test
 
 import (
-	"database/sql"
 	"testing"
 
 	"tokentally/internal/db"
@@ -10,14 +9,14 @@ import (
 
 // openWithUsage opens an in-memory DB and inserts one assistant message with
 // enough data to trigger the cache-hit-low tip (cache_read < 20% of input).
-func openWithUsage(t *testing.T) *sql.DB {
+func openWithUsage(t *testing.T) *db.Pool {
 	t.Helper()
 	conn, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	_, err = conn.Exec(`
+	_, err = conn.Write.Exec(`
 		INSERT INTO messages
 		  (uuid, session_id, project_slug, type, timestamp,
 		   model, input_tokens, output_tokens, cache_read_tokens,

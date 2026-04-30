@@ -4,7 +4,6 @@ package svc
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"tokentally/internal/db"
 	"tokentally/internal/scanner"
 
 	"github.com/godbus/dbus/v5"
@@ -115,7 +115,7 @@ func Uninstall() error {
 	return nil
 }
 
-func Run(db *sql.DB, projectsDir string, interval time.Duration) error {
+func Run(pool *db.Pool, projectsDir string, interval time.Duration) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -125,7 +125,7 @@ func Run(db *sql.DB, projectsDir string, interval time.Duration) error {
 	for {
 		select {
 		case <-ticker.C:
-			if _, err := scanner.ScanDir(db, projectsDir); err != nil {
+			if _, err := scanner.ScanDir(pool, projectsDir); err != nil {
 				log.Printf("scan error: %v", err)
 			}
 		case <-ctx.Done():
