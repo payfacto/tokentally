@@ -267,3 +267,59 @@ SELECT u.uuid FROM messages u LEFT JOIN messages a ON a.parent_uuid=u.uuid AND a
 ```
 
 The user asked "Want me to apply 1-6 now?" — this is the open question to pick up at the start of the next session.
+
+## Session — 2026-04-30 09:30
+
+### What Was Done
+
+This session closed out **all 11 items from the database review** (started in the previous session), shipped as separate focused commits. Started from 44 passing tests, ended at 57.
+
+- **`aa318f0` — Quick-win batch (review items #1–4):** added `idx_messages_parent`, `idx_tools_message_uuid`, `idx_tools_use_id`; switched DSN to `synchronous=NORMAL`; added `COLLATE NOCASE` to `SearchPrompts`; fixed `scanMaps` to return `make([]map[string]any, 0)` instead of nil so Wails serializes `[]` not `null`.
+- **`ef6a733` — Read/write pool split (#5):** introduced `db.Pool` with separate Read (`MaxOpenConns=4`) and Write (`MaxOpenConns=1`) handles to the same SQLite file. Eliminates the "database is locked" class of errors when UI writes overlap the scanner's per-file transaction — losers now wait at the Go pool layer instead of failing after `busy_timeout`. Touched 18 files; every helper signature flipped from `*sql.DB` to `*Pool`. `:memory:` paths share one handle so tests still work.
+- **`b0b39e9` — JOIN disambiguation (#8):** correlated subquery using `MIN(rowid)` makes the user→assistant join in `SearchPrompts`/`ExpensivePrompts` deterministic when a user message has multiple assistant children. Added regression test.
+- **`3431511` — Untrack scratch files:** dropped `calculator-todo.md`, `rtk-feature.md`, `image-1/2.png` from the index; live working files moved under `.superpowers/jay-todo/` (already gitignored via `.superpowers/`).
+- **`c47fe1c` — Batch lookup + WAL checkpoint (#7, #11):** replaced N+1 `distinctCWDs` calls in `ProjectSummary` and `RecentSessions` with a single `cwdsForSlugs(p, slugs)` query. Added `Pool.CheckpointWAL()` calling `PRAGMA wal_checkpoint(TRUNCATE)` after each scan-loop tick so the `.wal` sidecar does not grow unbounded over a long session. Removed dead `distinctCWDs` helper.
+- **`c3f624c` — FTS5 full-text search (#6):** added `messages_fts` virtual table with the **trigram tokenizer** (preserves the `LIKE` substring-match UX with index support). AFTER INSERT and AFTER DELETE triggers keep the index in sync; WHEN clauses skip empty `prompt_text` rows. One-time `applyFTSBackfill` populates existing messages. New `sanitizeFTSQuery` escapes user input — quoted-phrase-AND so multi-word queries match in any order. Frontend min-length guard raised from 1 to 3 (trigram requires ≥3 chars per token). 8 new test sub-cases.
+- **`762fe43` — Version-tracked migrations + drop AUTOINCREMENT (#9, #10):** replaced the per-migration gate-flag pattern with a single `schema_version` row in `plan` and a numbered `migrations` slice. `targetSchemaVersion = 3`. `readSchemaVersion` infers the starting version from the legacy gate flags so existing DBs do not repeat already-applied work. Migration 3 (`migrateDropToolCallsAutoincrement`) recreates `tool_calls` without `AUTOINCREMENT` only when the table actually has it. Static schema for fresh DBs drops the keyword entirely. Exported `SchemaVersion(p)` for diagnostics. 4 internal-package tests cover fresh, legacy-detection, recreate, and no-op-when-clean paths.
+
+### Files Changed
+
+- `internal/db/db.go` — `Pool` type, `Open` returns `*Pool`, `initSchema` extracted, FTS5 schema + triggers, `applyMigrations` runner, three numbered migration funcs, batch `cwdsForSlugs`, `Pool.CheckpointWAL`, `sanitizeFTSQuery`, `SchemaVersion`, `MIN(rowid)` JOIN subqueries, three new indexes, every helper signature now `*Pool`
+- `internal/db/chunks.go` — read helpers take `*Pool`
+- `internal/db/db_test.go` — `openMem` returns `*Pool`; new tests for FTS5, JOIN disambiguation, FTS backfill
+- `internal/db/migrations_test.go` — new internal-package file: `TestSchemaVersion_FreshDB`, `TestSchemaVersion_LegacyDBInferredFromGateFlags`, `TestMigrateDropToolCallsAutoincrement`, `TestMigrateDropToolCallsAutoincrement_NoOpOnFreshDB`
+- `internal/scanner/scanner.go` — `ScanDir` takes `*Pool`; `scanFile` uses `p.Write.Begin()`; `processLine` no longer takes a separate `conn` (skill upserts now go through the open tx — fixes a deadlock under the single Write-pool slot)
+- `internal/scanner/scanner_test.go`, `internal/tips/tips.go`, `internal/tips/tips_test.go` — adapted to `*Pool`
+- `app/app.go` — `App.conn` is now `*db.Pool`; `runInspectorBackfill` and `scanLoop` route through `.Write` for raw exec; periodic `CheckpointWAL` in scan loop
+- `app/service_linux.go`, `svc/service_windows.go`, `svc/service_linux.go`, `cmd/backfill-skills/main.go` — match new signatures
+- `frontend/inspector/src/views/PromptsView.vue` — search min-length guard now 3 chars (trigram floor)
+
+### Decisions Made
+
+- **Trigram tokenizer over default FTS5 tokenizer.** Why: preserves the substring-match UX users had with LIKE — default tokenizer would have been a regression where "dep" no longer found "deploy". How to apply: bigger index on disk is the cost; if disk usage becomes a concern, revisit by switching to `unicode61` with prefix-matching `*` suffix on the last token.
+- **Multi-word FTS queries are AND'd, not phrase-matched.** Why: users typing two terms usually mean "find anything mentioning both," not "find this exact phrase." How to apply: if anyone reports `"foo bar"` no longer finding the exact contiguous string, revisit `sanitizeFTSQuery` and consider supporting a `"..."` literal-phrase syntax.
+- **Migration runner uses legacy-gate inference.** Why: existing DBs already have `fix_user_string_content=1` and `fts_backfill_done=1`; running them again would be wasted work. How to apply: when adding migration N, append to `migrations` slice and bump `targetSchemaVersion`. No separate gate flag needed for new migrations.
+- **AUTOINCREMENT removal detects-then-recreates.** Why: fresh DBs ship without AUTOINCREMENT in the static schema, so the migration must no-op for them. How to apply: any future "drop a feature from an existing table" migration should follow the same `sqlite_master` inspection pattern.
+- **Frontend min-length 3 instead of LIKE fallback for short queries.** Why: 2-char substring searches are rare and the code complexity of a fallback path is not worth it. How to apply: if anyone asks, add a LIKE fallback in `SearchPrompts` when sanitized query has tokens shorter than 3.
+
+### Open Questions / Blockers
+
+- None. All 11 review items closed.
+
+## Running state
+
+- Background processes: none
+- Dev servers / ports: none
+- Open worktrees / branches: none
+- Unstaged working tree: clean (apart from untracked notes under `.superpowers/jay-todo/` which are gitignored)
+- Local commits ahead of `main`: 7 (`aa318f0` through `762fe43`); not pushed
+
+### Inferred Next Steps
+
+The DB front is fully closed out. Reasonable next directions, in roughly descending value:
+
+1. **Push the branch and open a PR.** 7 commits is a decent batch. Each is independent enough that the PR could be reviewed by reading commit messages alone.
+2. **Verify migration 3 against a production-sized DB.** The AUTOINCREMENT recreate dance has only been tested on `:memory:`. Worth running once against a copy of `~/.claude/tokentally.db` before merging if the user has a sizable history. Quick check: copy the DB, run the new binary against it, confirm the app starts and search works.
+3. **Document the new schema migration pattern in CLAUDE.md.** The project instructions mention SQL conventions but not how to add a migration. A short note pointing to `targetSchemaVersion` + `migrations` slice in `db.go` would help future-you.
+4. **Frontend feedback for "too-short query" state.** Currently a 2-char query just shows nothing happening. Could show a hint like "type 3 or more characters to search". Small UX polish.
+5. **Resume any non-DB work.** The inspector / tray / pricing / overage areas have not been touched in this DB-focused arc. If there's a feature backlog, this is a good time to switch.
