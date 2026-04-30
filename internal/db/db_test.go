@@ -1,7 +1,6 @@
 package db_test
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,7 +8,7 @@ import (
 	"tokentally/internal/db"
 )
 
-func openMem(t *testing.T) *sql.DB {
+func openMem(t *testing.T) *db.Pool {
 	t.Helper()
 	conn, err := db.Open(":memory:")
 	if err != nil {
@@ -19,10 +18,10 @@ func openMem(t *testing.T) *sql.DB {
 	return conn
 }
 
-func tableExists(t *testing.T, conn *sql.DB, name string) bool {
+func tableExists(t *testing.T, conn *db.Pool, name string) bool {
 	t.Helper()
 	var n int
-	err := conn.QueryRow(
+	err := conn.Read.QueryRow(
 		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name,
 	).Scan(&n)
 	if err != nil {
@@ -43,7 +42,7 @@ func TestOpen_CreatesSchema(t *testing.T) {
 func TestOpen_InspectorColumns(t *testing.T) {
 	conn := openMem(t)
 	columnExists := func(table, col string) bool {
-		rows, err := conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+		rows, err := conn.Read.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 		if err != nil {
 			t.Fatalf("pragma table_info(%s): %v", table, err)
 		}
@@ -115,9 +114,9 @@ func TestBestProjectName(t *testing.T) {
 	}
 }
 
-func insertMessage(t *testing.T, conn *sql.DB, fields map[string]any) {
+func insertMessage(t *testing.T, conn *db.Pool, fields map[string]any) {
 	t.Helper()
-	_, err := conn.Exec(`
+	_, err := conn.Write.Exec(`
 		INSERT INTO messages (
 			uuid, session_id, project_slug, type, timestamp,
 			input_tokens, output_tokens, cache_read_tokens,
@@ -245,7 +244,7 @@ func TestExpensivePrompts(t *testing.T) {
 		"prompt_text": "What is 2+2?", "prompt_chars": 12,
 	})
 	// assistant response (parent_uuid = user1)
-	_, err := conn.Exec(`
+	_, err := conn.Write.Exec(`
 		INSERT INTO messages (uuid, session_id, project_slug, type, timestamp,
 			input_tokens, output_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
 			cache_read_tokens, parent_uuid, model, is_sidechain)
@@ -306,9 +305,9 @@ func TestGetSetPlan(t *testing.T) {
 	}
 }
 
-func insertToolCall(t *testing.T, conn *sql.DB, fields map[string]any) {
+func insertToolCall(t *testing.T, conn *db.Pool, fields map[string]any) {
 	t.Helper()
-	_, err := conn.Exec(`
+	_, err := conn.Write.Exec(`
 		INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, result_tokens, is_error, timestamp)
 		VALUES (?,?,?,?,?,?,?,?)`,
 		fields["message_uuid"], fields["session_id"], fields["project_slug"],
@@ -329,7 +328,7 @@ func TestOpen_WALMode(t *testing.T) {
 	}
 	defer conn.Close()
 	// Ping to verify connection is live.
-	if err := conn.Ping(); err != nil {
+	if err := conn.Read.Ping(); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
 }
@@ -562,16 +561,16 @@ func TestGetSessionChunks_UserAndAI(t *testing.T) {
 	conn := openMem(t)
 
 	// user message
-	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,prompt_text)
+	conn.Write.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,prompt_text)
 		VALUES ('u1','sess1','proj','user','2025-01-01T10:00:00Z','hello world')`) //nolint:errcheck
 
 	// assistant message with thinking + tool call
-	conn.Exec(`INSERT INTO messages
+	conn.Write.Exec(`INSERT INTO messages
 		(uuid,parent_uuid,session_id,project_slug,type,timestamp,model,thinking_text,input_tokens,output_tokens,cache_read_tokens)
 		VALUES ('a1','u1','sess1','proj','assistant','2025-01-01T10:00:01Z','claude-sonnet-4-6','I should run bash',100,50,20)`) //nolint:errcheck
 
 	// tool call row
-	conn.Exec(`INSERT INTO tool_calls
+	conn.Write.Exec(`INSERT INTO tool_calls
 		(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,duration_ms,is_error,timestamp)
 		VALUES ('a1','sess1','proj','Bash','ls -la','tu1','{"command":"ls -la"}','file.txt',123,0,'2025-01-01T10:00:01Z')`) //nolint:errcheck
 
@@ -621,7 +620,7 @@ func TestGetSessionChunks_UserAndAI(t *testing.T) {
 
 func TestGetSessionChunks_Compaction(t *testing.T) {
 	conn := openMem(t)
-	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,tokens_before,tokens_after)
+	conn.Write.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,tokens_before,tokens_after)
 		VALUES ('s1','sess2','proj','summary','2025-01-01T10:00:00Z',500,100)`) //nolint:errcheck
 
 	chunks, err := db.GetSessionChunks(conn, "sess2")
@@ -644,9 +643,9 @@ func TestGetSessionChunks_Compaction(t *testing.T) {
 
 func TestGetSessionChunks_SubagentExtraction(t *testing.T) {
 	conn := openMem(t)
-	conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens,output_tokens,cache_read_tokens)
+	conn.Write.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens,output_tokens,cache_read_tokens)
 		VALUES ('a1','sess3','proj','assistant','2025-01-01T10:00:00Z',0,0,0)`) //nolint:errcheck
-	conn.Exec(`INSERT INTO tool_calls
+	conn.Write.Exec(`INSERT INTO tool_calls
 		(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,is_error,timestamp)
 		VALUES ('a1','sess3','proj','Task','code-reviewer','tu1',
 		  '{"description":"Review code","subagent_type":"code-reviewer"}',
@@ -737,29 +736,29 @@ func TestPurgeMessages(t *testing.T) {
 
 	// Recent message must still be present.
 	var count int
-	conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='new1'`).Scan(&count) //nolint:errcheck
+	conn.Read.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='new1'`).Scan(&count) //nolint:errcheck
 	if count != 1 {
 		t.Errorf("recent message was incorrectly deleted")
 	}
 
 	// Old message must be gone.
-	conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='old1'`).Scan(&count) //nolint:errcheck
+	conn.Read.QueryRow(`SELECT COUNT(*) FROM messages WHERE uuid='old1'`).Scan(&count) //nolint:errcheck
 	if count != 0 {
 		t.Errorf("old message was not deleted")
 	}
 
 	// Tool call for old message must be gone.
-	conn.QueryRow(`SELECT COUNT(*) FROM tool_calls WHERE message_uuid='old1'`).Scan(&count) //nolint:errcheck
+	conn.Read.QueryRow(`SELECT COUNT(*) FROM tool_calls WHERE message_uuid='old1'`).Scan(&count) //nolint:errcheck
 	if count != 0 {
 		t.Errorf("tool_call for old message was not deleted")
 	}
 
 	// files table must be untouched — leaving it intact prevents re-import of purged data.
-	conn.Exec(`INSERT INTO files (path, mtime, bytes_read, scanned_at) VALUES ('test.jsonl', 1.0, 100, 1.0)`) //nolint:errcheck
+	conn.Write.Exec(`INSERT INTO files (path, mtime, bytes_read, scanned_at) VALUES ('test.jsonl', 1.0, 100, 1.0)`) //nolint:errcheck
 	if _, err := db.PurgeMessages(conn, 1); err != nil {
 		t.Fatalf("second PurgeMessages call failed: %v", err)
 	}
-	conn.QueryRow(`SELECT COUNT(*) FROM files`).Scan(&count) //nolint:errcheck
+	conn.Read.QueryRow(`SELECT COUNT(*) FROM files`).Scan(&count) //nolint:errcheck
 	if count != 1 {
 		t.Errorf("files table was modified by PurgeMessages — it must remain untouched")
 	}
@@ -781,7 +780,7 @@ func TestPurgeMessages_ZeroDaysIsNoop(t *testing.T) {
 	}
 
 	var count int
-	conn.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count) //nolint:errcheck
+	conn.Read.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count) //nolint:errcheck
 	if count != 1 {
 		t.Errorf("message was incorrectly deleted when days=0")
 	}
@@ -801,9 +800,9 @@ func TestGetSessionChunks_MultipleTurnsWithTools(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		ts := fmt.Sprintf("2025-01-01T10:00:%02dZ", i)
 		uuid := fmt.Sprintf("ai%d", i)
-		conn.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens)
+		conn.Write.Exec(`INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens)
 			VALUES (?,?,?,?,?,?)`, uuid, "sessM", "proj", "assistant", ts, 10) //nolint:errcheck
-		conn.Exec(`INSERT INTO tool_calls
+		conn.Write.Exec(`INSERT INTO tool_calls
 			(message_uuid,session_id,project_slug,tool_name,target,tool_use_id,input_json,output_text,is_error,timestamp)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			uuid, "sessM", "proj", "Bash", "", fmt.Sprintf("tu%d", i),

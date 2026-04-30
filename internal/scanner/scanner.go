@@ -132,8 +132,9 @@ type fileState struct {
 }
 
 // ScanDir walks projectsDir recursively for *.jsonl files and ingests new
-// content into conn. Safe to call concurrently with DB readers (WAL mode).
-func ScanDir(conn *sql.DB, projectsDir string) (ScanResult, error) {
+// content. Reads use p.Read; mutations use p.Write so concurrent UI writers
+// queue at the Go pool layer rather than failing with "database is locked".
+func ScanDir(p *db.Pool, projectsDir string) (ScanResult, error) {
 	var result ScanResult
 
 	err := filepath.WalkDir(projectsDir, func(path string, d fs.DirEntry, walkErr error) error {
@@ -149,7 +150,7 @@ func ScanDir(conn *sql.DB, projectsDir string) (ScanResult, error) {
 			return nil
 		}
 
-		state, err := loadFileState(conn, path)
+		state, err := loadFileState(p, path)
 		if err != nil {
 			return fmt.Errorf("loadFileState %s: %w", path, err)
 		}
@@ -165,12 +166,12 @@ func ScanDir(conn *sql.DB, projectsDir string) (ScanResult, error) {
 		}
 
 		slug := projectSlug(path, projectsDir)
-		sub, err := scanFile(conn, path, slug, startByte)
+		sub, err := scanFile(p, path, slug, startByte)
 		if err != nil {
 			return nil // permission or I/O error — skip this file, walk continues
 		}
 
-		if err := saveFileState(conn, path, currentMtime, sub.endOffset); err != nil {
+		if err := saveFileState(p, path, currentMtime, sub.endOffset); err != nil {
 			return fmt.Errorf("saveFileState %s: %w", path, err)
 		}
 
@@ -194,9 +195,9 @@ type scanFileResult struct {
 
 // scanFile reads new JSONL lines from path starting at startByte.
 // It stops at a partial (newline-less) line to preserve partial-flush safety.
-// All inserts for the file are batched inside a single transaction — this
-// collapses what would otherwise be thousands of individual WAL writes into one.
-func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFileResult, error) {
+// All inserts for the file are batched inside a single Write-pool transaction —
+// this collapses what would otherwise be thousands of individual WAL writes into one.
+func scanFile(p *db.Pool, path, projectSlug string, startByte int64) (scanFileResult, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return scanFileResult{endOffset: startByte}, fmt.Errorf("open: %w", err)
@@ -209,7 +210,7 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 		}
 	}
 
-	tx, err := conn.Begin()
+	tx, err := p.Write.Begin()
 	if err != nil {
 		return scanFileResult{endOffset: startByte}, fmt.Errorf("scanFile begin tx: %w", err)
 	}
@@ -234,7 +235,7 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 			break
 		}
 
-		msgs, tools, parseErr := processLine(tx, conn, raw, projectSlug)
+		msgs, tools, parseErr := processLine(tx, raw, projectSlug)
 		if parseErr == nil {
 			result.messages += msgs
 			result.tools += tools
@@ -262,10 +263,10 @@ func scanFile(conn *sql.DB, path, projectSlug string, startByte int64) (scanFile
 }
 
 // processLine parses one JSONL line and inserts a message + tool rows.
-// tx is used for all main table writes; conn is used for best-effort
-// skill-size metadata which is intentionally outside the file transaction.
-// Returns (messagesInserted, toolsInserted, error).
-func processLine(tx dbExec, conn *sql.DB, raw []byte, slug string) (int, int, error) {
+// tx is used for all writes including skill-size upserts (the previous
+// "outside the tx" path would deadlock on the single Write-pool connection
+// the tx is holding). Returns (messagesInserted, toolsInserted, error).
+func processLine(tx dbExec, raw []byte, slug string) (int, int, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return 0, 0, nil
@@ -299,7 +300,7 @@ func processLine(tx dbExec, conn *sql.DB, raw []byte, slug string) (int, int, er
 		}
 		if tc.toolName == "Skill" && tc.target != "" {
 			if b, ok := skills.Bytes(tc.target); ok {
-				_ = db.UpsertSkillSize(conn, tc.target, b) // best-effort, outside file tx
+				_ = db.UpsertSkillSize(tx, tc.target, b) // best-effort
 			}
 		}
 	}
@@ -779,9 +780,9 @@ func projectSlug(filePath, root string) string {
 
 // loadFileState fetches the stored mtime and bytes_read for a file.
 // Returns nil when no row exists yet.
-func loadFileState(conn *sql.DB, path string) (*fileState, error) {
+func loadFileState(p *db.Pool, path string) (*fileState, error) {
 	var state fileState
-	err := conn.QueryRow(
+	err := p.Read.QueryRow(
 		`SELECT mtime, bytes_read FROM files WHERE path=?`, path,
 	).Scan(&state.mtime, &state.bytesRead)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -794,8 +795,8 @@ func loadFileState(conn *sql.DB, path string) (*fileState, error) {
 }
 
 // saveFileState upserts the scan position for a file.
-func saveFileState(conn *sql.DB, path string, mtime float64, bytesRead int64) error {
-	_, err := conn.Exec(
+func saveFileState(p *db.Pool, path string, mtime float64, bytesRead int64) error {
+	_, err := p.Write.Exec(
 		`INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at) VALUES (?,?,?,?)`,
 		path, mtime, bytesRead, float64(time.Now().UnixNano())/nanosPerSec,
 	)

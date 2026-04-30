@@ -33,7 +33,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	rows, err := conn.Query(
+	rows, err := conn.Read.Query(
 		`SELECT DISTINCT target FROM tool_calls
 		 WHERE tool_name='Skill' AND target != '' AND target IS NOT NULL
 		 ORDER BY target`,
@@ -60,7 +60,7 @@ func main() {
 			skipped++
 			continue
 		}
-		if err := db.UpsertSkillSize(conn, name, b); err != nil {
+		if err := db.UpsertSkillSize(conn.Write, name, b); err != nil {
 			fmt.Printf("  error %-45s  %v\n", name, err)
 			continue
 		}

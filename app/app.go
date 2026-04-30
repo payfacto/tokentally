@@ -63,7 +63,7 @@ var supportedCurrencies = []string{"USD", "CAD", "EUR", "GBP", "AUD", "NZD", "CH
 // App is the Wails application struct — all exported methods are bound to the JS frontend.
 type App struct {
 	ctx            context.Context
-	conn           *sql.DB
+	conn           *db.Pool
 	projectsDir    string
 	pricingMu      sync.RWMutex
 	pricing        *pricing.Pricing // guarded by pricingMu; rebuilt from DB on every change
@@ -73,9 +73,9 @@ type App struct {
 	lastRefresh    time.Time
 }
 
-// New creates a new App. conn must already be open.
-func New(conn *sql.DB, projectsDir string, p *pricing.Pricing) *App {
-	return &App{conn: conn, projectsDir: projectsDir, defaultPricing: p}
+// New creates a new App. pool must already be open.
+func New(pool *db.Pool, projectsDir string, p *pricing.Pricing) *App {
+	return &App{conn: pool, projectsDir: projectsDir, defaultPricing: p}
 }
 
 // Startup is called by Wails when the app starts.
@@ -168,18 +168,18 @@ func (a *App) scanLoop() {
 }
 
 // needsInspectorBackfill returns true if the one-time inspector backfill has not yet run.
-func needsInspectorBackfill(conn *sql.DB) bool {
+func needsInspectorBackfill(p *db.Pool) bool {
 	var v string
-	err := conn.QueryRow(`SELECT v FROM plan WHERE k='inspector_backfill_done'`).Scan(&v)
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='inspector_backfill_done'`).Scan(&v)
 	return errors.Is(err, sql.ErrNoRows)
 }
 
 // runInspectorBackfill clears the file-scan cache to force a full rescan that
 // populates the new inspector columns, then starts the normal scan loop.
 func (a *App) runInspectorBackfill() {
-	a.conn.Exec(`DELETE FROM files`) //nolint:errcheck
+	a.conn.Write.Exec(`DELETE FROM files`) //nolint:errcheck
 	if _, err := scanner.ScanDir(a.conn, a.projectsDir); err == nil {
-		a.conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('inspector_backfill_done','1')`) //nolint:errcheck
+		a.conn.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('inspector_backfill_done','1')`) //nolint:errcheck
 	}
 	a.scanLoop()
 }

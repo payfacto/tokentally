@@ -3,11 +3,11 @@
 package app
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"time"
 
+	"tokentally/internal/db"
 	"tokentally/svc"
 )
 
@@ -31,6 +31,6 @@ func (a *App) UninstallService() error {
 }
 
 // RunService runs the application as a Linux systemd service.
-func (a *App) RunService(db *sql.DB, projectsDir string, interval time.Duration) error {
-	return svc.Run(db, projectsDir, interval)
+func (a *App) RunService(pool *db.Pool, projectsDir string, interval time.Duration) error {
+	return svc.Run(pool, projectsDir, interval)
 }
