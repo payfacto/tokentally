@@ -101,8 +101,8 @@ const displayRows = computed<PromptRow[]>(() =>
 const subtitle = computed(() => {
   if (sort.value.key === 'search') return null
   return sort.value.key === 'recent'
-    ? 'Your latest prompts and the assistant turn each one triggered. Click a row to see the full prompt.'
-    : 'The prompts that cost the most tokens. Click a row to see the full prompt.'
+    ? 'Your latest prompts (including subagent and hook entries) and the assistant turn each one triggered. Click a row to see the full prompt.'
+    : 'The prompts that cost the most tokens, including subagent and hook entries. Click a row to see the full prompt.'
 })
 
 onMounted(fetchRows)
