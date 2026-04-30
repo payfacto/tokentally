@@ -1,7 +1,7 @@
 # TokenTally
 
 <p align="center">
-  <img src="banner.png" alt="TokenTally — See it. Spend it. Shrink it." width="680">
+  <img src="assets/banner.png" alt="TokenTally — See it. Spend it. Shrink it." width="680">
 </p>
 
 A desktop app for tracking Claude Code token usage, costs, and session history. Reads the JSONL transcripts that Claude Code writes to `~/.claude/projects/` and turns them into a live dashboard — no cloud, no account, no telemetry. Runs on Windows and macOS.
@@ -10,13 +10,53 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 
 ## Features
 
-- **7-tab dashboard** — Overview, Prompts, Sessions, Projects, Skills, Tips, Settings
-- **Cost estimates** — per-prompt and aggregate costs using live `pricing.json` rates; subscription plans show the flat monthly fee as the headline with token-equivalent cost below
-- **Cache analytics** — cache hit rate, 5-minute vs 1-hour cache breakdown
-- **Incremental scanner** — only reads new bytes on each scan; safe with mid-flush partial writes
-- **Background service** — optional Windows SCM service keeps the DB up to date even when the dashboard is closed (Windows only)
-- **Tips engine** — rule-based suggestions (low cache hit rate, high output ratio, short sessions)
-- **Privacy blur** — `Ctrl+B` / `Cmd+B` blurs prompt text and sensitive content for screenshots
+### Dashboard tabs
+
+| Tab | What it shows |
+| --- | --- |
+| **Overview** | Aggregate token usage, cost totals, cache performance, and daily trend chart |
+| **Prompts** | Most expensive prompts across all sessions — searchable, sortable, with per-prompt cost breakdown |
+| **Sessions** | Session list with turn-by-turn drilldown; hook/attachment rows shown inline |
+| **Projects** | Per-project token and cost summaries |
+| **Skills** | Breakdown of Claude Code skills invoked across sessions |
+| **Tools** | Overage & auth status checker; RTK Token Savings dashboard (see below) |
+| **Tips** | Rule-based suggestions: low cache hit rate, high output ratio, many short sessions |
+| **Calculator** | Interactive token cost estimator — enter token counts and model to see cost instantly |
+| **Settings** | Plan, pricing models, currency, exchange rates, data retention, and Windows service management |
+
+### Cost & pricing
+
+- Per-prompt and aggregate costs using configurable `pricing.json` rates (per 1 M tokens)
+- Subscription plan support — Pro / Max show the flat monthly fee as the headline cost with token-equivalent below
+- Multi-currency display with live exchange rate refresh
+- Fully overridable: edit `pricing.json` in place or point `TOKENTALLY_PRICING_JSON` at your own file
+
+### Cache analytics
+
+- Cache hit rate, 5-minute vs 1-hour cache breakdown, cache creation cost tracking
+
+### RTK Token Savings (Tools tab)
+
+- Runs `rtk gain` and displays a full graphical dashboard: summary stats (commands, input/output/saved tokens, exec time), circular efficiency meter, and a ranked "By Command" table with impact bars
+- Detects whether RTK is installed; links to [rtk-ai.app](https://www.rtk-ai.app/) if not
+
+### Data & scanning
+
+- **Incremental JSONL scanner** — tracks `(path, mtime, bytes_read)` per file; only reads new bytes on each tick; safe with mid-flush partial writes
+- **30-second background scan loop** — emits a live-refresh event to the UI after each change
+- **Data retention** — configurable purge policy; manually trigger via Settings
+- **HTML export** — one-click export of the current session to a self-contained HTML report
+
+### Platform integration
+
+| Feature | Windows | macOS |
+| --- | --- | --- |
+| Desktop GUI (WebView2 / WebKit) | ✓ | ✓ |
+| System tray icon (Open, Scan Now, Quit) | ✓ | — |
+| Background Windows SCM service | ✓ | — |
+| Startup at login (Run registry key) | ✓ | — |
+
+---
 
 ## Installation
 
@@ -42,6 +82,8 @@ The service (`TokenTally`) starts at boot and keeps `tokentally.db` current. The
 tokentally.exe --uninstall
 ```
 
+---
+
 ## Data
 
 | Item | Windows default | macOS default |
@@ -51,9 +93,11 @@ tokentally.exe --uninstall
 
 Override with environment variables `TOKENTALLY_DB` and `TOKENTALLY_PROJECTS_DIR`.
 
+---
+
 ## Customising pricing
 
-Edit `pricing.json` in the same directory as `tokentally.exe` and reload the dashboard, or point `TOKENTALLY_PRICING_JSON` at any JSON file with the same structure. Rates are per 1 M tokens (USD):
+Edit `pricing.json` in the same directory as the binary and reload the dashboard, or point `TOKENTALLY_PRICING_JSON` at any JSON file with the same structure. Rates are per 1 M tokens (USD):
 
 ```json
 {
@@ -71,6 +115,8 @@ Edit `pricing.json` in the same directory as `tokentally.exe` and reload the das
   }
 }
 ```
+
+---
 
 ## Building from source
 
@@ -104,6 +150,8 @@ wails build -platform windows/amd64 -skipbindings
 Output: `build/bin/TokenTally.app` (macOS) or `build/bin/tokentally.exe` (Windows).
 
 > **macOS note:** The system tray and background service are Windows-only. On macOS, closing the window quits the app.
+
+---
 
 ## Environment variables
 
