@@ -5,6 +5,7 @@ package main
 import (
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"tokentally/app"
 	"tokentally/internal/db"
+	"tokentally/internal/version"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -26,7 +28,13 @@ func main() {
 	installFlag := flag.Bool("install", false, "Install Linux systemd user service")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall Linux systemd user service")
 	serviceFlag := flag.Bool("service", false, "Run as Linux systemd service (internal use)")
+	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("TokenTally version %s\n", version.Version)
+		return
+	}
 
 	dbPath := envOrDefault("TOKENTALLY_DB", filepath.Join(homeDir(), ".claude", "tokentally.db"))
 	projectsDir := envOrDefault("TOKENTALLY_PROJECTS_DIR", filepath.Join(homeDir(), ".claude", "projects"))

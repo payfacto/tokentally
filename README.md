@@ -170,10 +170,105 @@ Output: `build/bin/TokenTally.app` (macOS), `build/bin/tokentally.exe` (Windows)
 
 ---
 
+## Version info
+
+TokenTally embeds a version string via Go's `-ldflags -X`. The variable lives at `tokentally/internal/version.Version` and defaults to `dev` for plain `go build` / `wails build` invocations.
+
+Check the compiled version:
+
+```bash
+tokentally --version
+# TokenTally version v1.2.3
+```
+
+The version is also shown in the topbar header next to the **TokenTally** brand.
+
+### Building with a version stamp
+
+The `Makefile` derives the version from the nearest git tag:
+
+```bash
+make build           # -> build/bin/<binary>, version from `git describe --tags --always --dirty`
+make build-windows   # cross-compile windows/amd64
+make build-darwin    # cross-compile darwin/arm64
+make build-linux     # cross-compile linux/amd64
+make test            # go test ./...
+make clean           # removes build/bin
+make version         # prints the resolved VERSION
+```
+
+Override the version explicitly if needed:
+
+```bash
+make build VERSION=v1.2.3
+```
+
+Equivalent raw `wails build` command (what `make build` runs under the hood):
+
+```bash
+wails build -ldflags "-X 'tokentally/internal/version.Version=v1.2.3'"
+```
+
+### Cutting a release
+
+Releases are automated end-to-end: Bitbucket is the source of truth; [`bitbucket-pipelines.yml`](bitbucket-pipelines.yml) mirrors `main` and all `v*` tags to a private GitHub mirror; [`.github/workflows/release.yml`](.github/workflows/release.yml) builds Windows, macOS (arm64), and Linux on push, and publishes archives to a GitHub Release on tag push.
+
+Checklist:
+
+1. Make sure `main` is clean and green.
+
+   ```bash
+   git checkout main
+   git pull
+   go test ./...
+   ```
+
+2. Pick the next version. We use Semantic Versioning (`vMAJOR.MINOR.PATCH`); the `v` prefix is required.
+
+   ```bash
+   git tag --list --sort=-v:refname | head
+   ```
+
+3. Create an annotated tag.
+
+   ```bash
+   git tag -a v1.2.3 -m "Release v1.2.3"
+   ```
+
+4. Push the tag to Bitbucket — the mirror pipeline forwards it to GitHub:
+
+   ```bash
+   git push origin v1.2.3
+   ```
+
+5. Watch the build in the GitHub mirror's Actions tab. When it goes green a new entry appears under Releases with `tokentally-windows-amd64.zip`, `tokentally-darwin-arm64.zip`, and `tokentally-linux-amd64.tar.gz` attached.
+
+#### Fixing a broken tag
+
+If a release needs redoing for the same version (rare — prefer bumping PATCH):
+
+```bash
+git tag -d v1.2.3                   # delete locally
+git push --delete origin v1.2.3     # delete on Bitbucket (mirror will not auto-delete on GitHub)
+# Manually delete the tag and Release on the GitHub mirror via the UI, then re-tag and re-push.
+```
+
+### Version-stamp wiring (how it plumbs through the code)
+
+- [`internal/version/version.go`](internal/version/version.go) declares `var Version = "dev"`.
+- Each `main_*.go` parses a `--version` flag and prints `TokenTally version <Version>` before exit.
+- [`app/app.go`](app/app.go) exposes `GetVersion()` over the Wails bridge for the frontend.
+- [`frontend/inspector/src/App.vue`](frontend/inspector/src/App.vue) renders it in the topbar header.
+- The `Makefile` injects the tag value via `-X 'tokentally/internal/version.Version=<tag>'` at build time.
+
+If you rename the variable or move it to another package, update the `Makefile` to match.
+
+---
+
 ## Environment variables
 
 | Variable | Default | Purpose |
-|----------|---------|---------|
+| --- | --- | --- |
 | `TOKENTALLY_DB` | `~/.claude/tokentally.db` | SQLite database path |
 | `TOKENTALLY_PROJECTS_DIR` | `~/.claude/projects` | Directory to scan for JSONL files |
 | `TOKENTALLY_PRICING_JSON` | *(embedded)* | Path to a custom `pricing.json` |

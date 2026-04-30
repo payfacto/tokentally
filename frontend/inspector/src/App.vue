@@ -11,9 +11,14 @@ const NAV_ROUTES = ['/overview', '/prompts', '/sessions', '/projects', '/skills'
 const showFirstRun = ref(false)
 const firstRunPlan = ref('api')
 const plans = ref<Array<[string, { monthly: number; label: string }]>>([])
+const version = ref('')
 
 onMounted(async () => {
   await store.boot()
+
+  try {
+    version.value = await window.go.app.App.GetVersion()
+  } catch { /* not in Wails env */ }
 
   if (store.pricing) {
     plans.value = Object.entries(store.pricing.plans)
@@ -42,6 +47,7 @@ async function saveFirstRun() {
     <div class="brand">
       <img :src="'/web/icon.svg'" class="mascot-logo" alt="">
       <span>Token<span style="color:var(--accent)">Tally</span></span>
+      <span v-if="version" class="brand-version">{{ version }}</span>
     </div>
     <nav>
       <RouterLink

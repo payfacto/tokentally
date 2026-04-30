@@ -16,6 +16,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"tokentally/app"
 	"tokentally/internal/db"
+	"tokentally/internal/version"
 	"tokentally/svc"
 )
 
@@ -42,7 +43,13 @@ func main() {
 	installFlag := flag.Bool("install", false, "Install Windows service (requires admin)")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall Windows service (requires admin)")
 	serviceFlag := flag.Bool("service", false, "Run as Windows SCM service (internal use)")
+	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("TokenTally version %s\n", version.Version)
+		return
+	}
 
 	dbPath := envOrDefault("TOKENTALLY_DB", filepath.Join(homeDir(), ".claude", "tokentally.db"))
 	projectsDir := envOrDefault("TOKENTALLY_PROJECTS_DIR", filepath.Join(homeDir(), ".claude", "projects"))

@@ -22,6 +22,7 @@ import (
 	"tokentally/internal/pricing"
 	"tokentally/internal/scanner"
 	"tokentally/internal/tips"
+	"tokentally/internal/version"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -197,6 +198,11 @@ type overviewResult struct {
 	CacheCreate5mTokens int64    `json:"cache_create_5m_tokens"`
 	CacheCreate1hTokens int64    `json:"cache_create_1h_tokens"`
 	CostUSD             *float64 `json:"cost_usd"`
+}
+
+// GetVersion returns the embedded build version (e.g. "v1.2.3" or "dev").
+func (a *App) GetVersion() string {
+	return version.Version
 }
 
 func (a *App) GetOverview(since, until string) (overviewResult, error) {
