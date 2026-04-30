@@ -64,10 +64,11 @@ async function fetchRows() {
 
 async function doSearch() {
   if (sort.value.key !== 'search') return
-  // FTS5 trigram tokenizer needs ≥3 chars per token to match anything; below
-  // that the search would silently return empty, so wait for more input.
   const trimmed = searchQuery.value.trim()
-  if (trimmed.length > 0 && trimmed.length < 3) return
+  if (trimmed.length > 0 && trimmed.length < 3) {
+    searchRows.value = []
+    return
+  }
   const seq = ++searchSeq
   searchPending.value = true
   try {
@@ -208,7 +209,11 @@ watch([searchQuery, searchTypes, searchFrom, searchTo], scheduleSearch)
               </td>
             </tr>
             <tr v-if="!searchPending && !displayRows?.length">
-              <td colspan="7" class="muted">{{ searchQuery || searchTypes.length < 3 ? 'no results' : 'enter a search term or adjust filters' }}</td>
+              <td colspan="7" class="muted">{{
+                searchQuery.trim().length > 0 && searchQuery.trim().length < 3
+                  ? 'type 3 or more characters to search'
+                  : searchQuery || searchTypes.length < 3 ? 'no results' : 'enter a search term or adjust filters'
+              }}</td>
             </tr>
           </tbody>
         </table>

@@ -99,6 +99,16 @@ Route modules live in `frontend/web/routes/*.js`. Each exports a default `async 
 - **`(session_id, message_id)`** is the streaming-snapshot dedup key (not `uuid`). See `evictPriorSnapshots`.
 - All token columns use `COALESCE(..., 0)` in aggregates.
 
+### Schema migrations
+
+Schema evolution is tracked via a `schema_version` row in the `plan` table (key `schema_version`). To add a migration:
+
+1. Append a `func(tx *sql.Tx) error` to the `migrations` slice in `internal/db/db.go`.
+2. Increment `targetSchemaVersion`.
+3. Add an internal-package test in `internal/db/migrations_test.go`.
+
+`readSchemaVersion` infers the starting version from legacy gate flags so existing DBs skip already-applied work. Fresh DBs start at `targetSchemaVersion` (migrations never run for them). For "drop a column from an existing table" migrations, follow the `migrateDropToolCallsAutoincrement` pattern: inspect `sqlite_master` first and no-op if the feature is already gone.
+
 ### Env vars
 
 | Var | Default |
