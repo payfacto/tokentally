@@ -70,7 +70,15 @@ jobs:
         run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Build
-        run: wails build -platform ${{ matrix.platform }} -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
+        shell: bash
+        run: |
+          # Ubuntu 24.04 ships webkit2gtk-4.1; Wails v2 defaults to 4.0.
+          # The webkit2_41 build tag selects the 4.1 cgo bindings.
+          TAGS=""
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            TAGS="-tags webkit2_41"
+          fi
+          wails build -platform ${{ matrix.platform }} $TAGS -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
