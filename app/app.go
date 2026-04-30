@@ -163,6 +163,9 @@ func (a *App) scanLoop() {
 		if days, _ := db.GetRetentionDays(a.conn); days > 0 {
 			db.PurgeMessages(a.conn, days) //nolint:errcheck
 		}
+		// Truncate the -wal sidecar so it doesn't grow unbounded over a long-
+		// running session. No-op when nothing's pending.
+		a.conn.CheckpointWAL() //nolint:errcheck
 		time.Sleep(interval)
 	}
 }
