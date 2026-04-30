@@ -831,3 +831,51 @@ func TestGetSessionChunks_MultipleTurnsWithTools(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchPrompts_DedupesMultipleAssistants verifies that when a user message
+// has multiple assistant children (e.g. a streaming snapshot eviction race or
+// a session re-roll), SearchPrompts and ExpensivePrompts return exactly one
+// row per user message, and pick the same assistant deterministically.
+func TestSearchPrompts_DedupesMultipleAssistants(t *testing.T) {
+	conn := openMem(t)
+	insertMessage(t, conn, map[string]any{
+		"uuid": "u1", "session_id": "s1", "project_slug": "proj",
+		"type": "user", "timestamp": "2025-06-01T10:00:00Z",
+		"prompt_text": "hello", "prompt_chars": 5,
+	})
+	// Two assistant turns share the same parent — picks lowest rowid.
+	insertMessage(t, conn, map[string]any{
+		"uuid": "a1", "session_id": "s1", "project_slug": "proj",
+		"type": "assistant", "timestamp": "2025-06-01T10:00:01Z",
+		"parent_uuid": "u1", "model": "claude-first",
+		"input_tokens": 100, "output_tokens": 50,
+	})
+	insertMessage(t, conn, map[string]any{
+		"uuid": "a2", "session_id": "s1", "project_slug": "proj",
+		"type": "assistant", "timestamp": "2025-06-01T10:00:02Z",
+		"parent_uuid": "u1", "model": "claude-second",
+		"input_tokens": 999, "output_tokens": 999,
+	})
+
+	rows, err := db.SearchPrompts(conn, "hello", "user", "", "")
+	if err != nil {
+		t.Fatalf("SearchPrompts: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d (JOIN duplicated user)", len(rows))
+	}
+	if model, _ := rows[0]["model"].(string); model != "claude-first" {
+		t.Errorf("expected first-inserted assistant (claude-first), got %q", model)
+	}
+
+	expensive, err := db.ExpensivePrompts(conn, 10, "tokens")
+	if err != nil {
+		t.Fatalf("ExpensivePrompts: %v", err)
+	}
+	if len(expensive) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(expensive))
+	}
+	if model, _ := expensive[0]["model"].(string); model != "claude-first" {
+		t.Errorf("expected first-inserted assistant, got %q", model)
+	}
+}
