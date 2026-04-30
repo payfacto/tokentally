@@ -98,6 +98,31 @@ CREATE TABLE IF NOT EXISTS skill_sizes (
   file_bytes INTEGER NOT NULL,
   updated_at TEXT    NOT NULL
 );
+
+-- Full-text search index over messages.prompt_text. Uses the trigram tokenizer
+-- so MATCH 'dep' finds 'deploy' / 'deploying' / 'redeploy' just like
+-- LIKE '%dep%' did, but with index support.
+-- External-content mode: FTS5 stores the index, the data stays in messages.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  prompt_text,
+  content='messages',
+  content_rowid='rowid',
+  tokenize='trigram'
+);
+
+-- INSERT OR REPLACE on messages fires DELETE-then-INSERT, so AI + AD cover
+-- both the streaming-snapshot replay path and the eviction path. messages
+-- is never UPDATE'd directly anywhere in the codebase, so no AU trigger.
+-- WHEN clauses skip rows without prompt_text so the FTS index only carries
+-- searchable text (skips assistant turns, system records, etc.).
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages
+  WHEN new.prompt_text IS NOT NULL AND new.prompt_text != '' BEGIN
+  INSERT INTO messages_fts(rowid, prompt_text) VALUES (new.rowid, new.prompt_text);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages
+  WHEN old.prompt_text IS NOT NULL AND old.prompt_text != '' BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, prompt_text) VALUES('delete', old.rowid, old.prompt_text);
+END;
 `
 
 const nanosPerSec = 1e9 // UnixNano → seconds for mtime/scanned_at storage
@@ -211,7 +236,10 @@ func initSchema(conn *sql.DB) error {
 	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tools_use_id ON tool_calls(tool_use_id)`); err != nil {
 		return fmt.Errorf("db.Open idx_tools_use_id: %w", err)
 	}
-	return applyOneTimeFixUserContent(conn)
+	if err := applyOneTimeFixUserContent(conn); err != nil {
+		return err
+	}
+	return applyFTSBackfill(conn)
 }
 
 // applyOneTimeFixUserContent resets all file-scan states the first time it
@@ -228,6 +256,26 @@ func applyOneTimeFixUserContent(conn *sql.DB) error {
 		return fmt.Errorf("fix_user_string_content reset files: %w", err)
 	}
 	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('fix_user_string_content','1')`)
+	return err
+}
+
+// applyFTSBackfill populates messages_fts from existing messages rows on the
+// first run after the FTS5 index was added to the schema. Subsequent INSERTs
+// and DELETEs are kept in sync by triggers.
+func applyFTSBackfill(conn *sql.DB) error {
+	var v string
+	_ = conn.QueryRow(`SELECT v FROM plan WHERE k='fts_backfill_done'`).Scan(&v)
+	if v == "1" {
+		return nil
+	}
+	if _, err := conn.Exec(
+		`INSERT INTO messages_fts(rowid, prompt_text)
+		 SELECT rowid, prompt_text FROM messages
+		 WHERE prompt_text IS NOT NULL AND prompt_text != ''`,
+	); err != nil {
+		return fmt.Errorf("fts_backfill: %w", err)
+	}
+	_, err := conn.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('fts_backfill_done','1')`)
 	return err
 }
 
@@ -377,6 +425,27 @@ FROM messages WHERE 1=1` + rng
 	return results[0], nil
 }
 
+// sanitizeFTSQuery escapes user input for FTS5 MATCH. Each whitespace-
+// separated token becomes a quoted phrase, embedded double quotes are
+// doubled (FTS5's escape inside quoted strings), and tokens are joined by
+// space which is implicit AND. This means "auth bug" finds messages
+// containing both substrings anywhere, in any order — closer to the UX
+// users expect than the previous strict-substring LIKE semantics.
+//
+// The trigram tokenizer requires ≥3 characters per token to match anything,
+// so the frontend should not send queries shorter than that.
+func sanitizeFTSQuery(q string) string {
+	fields := strings.Fields(q)
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for _, f := range fields {
+		parts = append(parts, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
+	}
+	return strings.Join(parts, " ")
+}
+
 // SearchPrompts returns user/hook prompts matching an optional text query,
 // filtered by type and date range. types is a comma-separated list of
 // "user", "subagent", "hook". from/to are YYYY-MM-DD date strings.
@@ -384,9 +453,9 @@ func SearchPrompts(p *Pool, query, types, from, to string) ([]map[string]any, er
 	var whereParts []string
 	var args []any
 
-	if query != "" {
-		whereParts = append(whereParts, "u.prompt_text LIKE ? COLLATE NOCASE")
-		args = append(args, "%"+query+"%")
+	if ftsQuery := sanitizeFTSQuery(query); ftsQuery != "" {
+		whereParts = append(whereParts, "u.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)")
+		args = append(args, ftsQuery)
 	}
 
 	typeSet := map[string]bool{}
