@@ -92,8 +92,13 @@ jobs:
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ matrix.archive }}
-          draft: false
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # Idempotent: the first matrix job to reach this step creates the
+          # release; the others see it already exists and just upload to it.
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
+            || true
+          gh release upload "$GITHUB_REF_NAME" "${{ matrix.archive }}" --repo "$GITHUB_REPOSITORY" --clobber
