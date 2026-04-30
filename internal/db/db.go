@@ -69,6 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_project   ON messages(project_slug);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_model     ON messages(model);
 CREATE INDEX IF NOT EXISTS idx_messages_msgid     ON messages(session_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_parent    ON messages(parent_uuid);
 CREATE TABLE IF NOT EXISTS tool_calls (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   message_uuid  TEXT    NOT NULL,
@@ -80,9 +81,10 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   is_error      INTEGER NOT NULL DEFAULT 0,
   timestamp     TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_tools_session ON tool_calls(session_id);
-CREATE INDEX IF NOT EXISTS idx_tools_name    ON tool_calls(tool_name);
-CREATE INDEX IF NOT EXISTS idx_tools_target  ON tool_calls(target);
+CREATE INDEX IF NOT EXISTS idx_tools_session      ON tool_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_tools_name         ON tool_calls(tool_name);
+CREATE INDEX IF NOT EXISTS idx_tools_target       ON tool_calls(target);
+CREATE INDEX IF NOT EXISTS idx_tools_message_uuid ON tool_calls(message_uuid);
 CREATE TABLE IF NOT EXISTS plan (
   k TEXT PRIMARY KEY,
   v TEXT
@@ -108,7 +110,7 @@ var nowFunc = func() float64 { return float64(time.Now().UnixNano()) / nanosPerS
 func Open(path string) (*sql.DB, error) {
 	dsn := path
 	if path != ":memory:" {
-		dsn = path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+		dsn = path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -132,6 +134,12 @@ func Open(path string) (*sql.DB, error) {
 			conn.Close()
 			return nil, err
 		}
+	}
+	// Index on tool_use_id must be created after addColumnIfMissing — the column
+	// is added via migration, not the static schema.
+	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tools_use_id ON tool_calls(tool_use_id)`); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("db.Open idx_tools_use_id: %w", err)
 	}
 	if err := applyOneTimeFixUserContent(conn); err != nil {
 		conn.Close()
@@ -311,7 +319,7 @@ func SearchPrompts(conn *sql.DB, query, types, from, to string) ([]map[string]an
 	var args []any
 
 	if query != "" {
-		whereParts = append(whereParts, "u.prompt_text LIKE ?")
+		whereParts = append(whereParts, "u.prompt_text LIKE ? COLLATE NOCASE")
 		args = append(args, "%"+query+"%")
 	}
 
@@ -710,12 +718,14 @@ func DismissedTips(conn *sql.DB) (map[string]bool, error) {
 }
 
 // scanMaps converts sql.Rows into a slice of map[string]any.
+// Returns an empty (non-nil) slice when there are no rows so callers (and JSON
+// serialisers like Wails) get [] rather than null.
 func scanMaps(rows *sql.Rows) ([]map[string]any, error) {
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
-	var results []map[string]any
+	results := make([]map[string]any, 0)
 	for rows.Next() {
 		vals := make([]any, len(cols))
 		ptrs := make([]any, len(cols))
