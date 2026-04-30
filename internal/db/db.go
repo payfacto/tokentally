@@ -429,7 +429,10 @@ SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
        COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)
          +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens
 FROM messages u
-LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
+LEFT JOIN messages a ON a.rowid = (
+    SELECT MIN(rowid) FROM messages
+    WHERE parent_uuid = u.uuid AND type='assistant'
+)
 WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt_text != ''` +
 		whereClause + `
 ORDER BY u.timestamp DESC
@@ -464,7 +467,10 @@ SELECT u.uuid AS user_uuid, u.session_id, u.project_slug, u.timestamp,
        COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)
          +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens
 FROM messages u
-JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
+JOIN messages a ON a.rowid = (
+    SELECT MIN(rowid) FROM messages
+    WHERE parent_uuid = u.uuid AND type='assistant'
+)
 WHERE u.type IN ('user','attachment') AND u.prompt_text IS NOT NULL AND u.prompt_text != ''
 ORDER BY ` + order + `
 LIMIT ?`
