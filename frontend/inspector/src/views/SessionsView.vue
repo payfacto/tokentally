@@ -121,7 +121,7 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
           </span>
           <span class="spacer" />
           <span v-if="exportMsg" class="export-msg muted" style="font-size:11px;font-family:var(--mono)">{{ exportMsg }}</span>
-          <button class="btn-export" title="Export as HTML" @click="exportHTML">
+          <button class="btn-export" title="Export as HTML" :disabled="!chunks.length" @click="exportHTML">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </button>
         </div>
@@ -161,7 +161,8 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .spacer { flex: 1; }
 .btn-export { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; line-height: 1; transition: color 120ms, border-color 120ms; }
-.btn-export:hover { color: var(--text); border-color: var(--text); }
+.btn-export:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
+.btn-export:disabled { opacity: 0.35; cursor: default; }
 .export-msg { margin-right: 8px; }
 .project-filter-bar { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--mono); }
 .project-filter-label { color: var(--accent, #e8956d); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
