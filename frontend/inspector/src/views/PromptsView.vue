@@ -64,7 +64,10 @@ async function fetchRows() {
 
 async function doSearch() {
   if (sort.value.key !== 'search') return
-  if (searchQuery.value.length === 1) return  // single char is too broad; wait for more
+  // FTS5 trigram tokenizer needs ≥3 chars per token to match anything; below
+  // that the search would silently return empty, so wait for more input.
+  const trimmed = searchQuery.value.trim()
+  if (trimmed.length > 0 && trimmed.length < 3) return
   const seq = ++searchSeq
   searchPending.value = true
   try {

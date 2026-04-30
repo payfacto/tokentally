@@ -879,3 +879,110 @@ func TestSearchPrompts_DedupesMultipleAssistants(t *testing.T) {
 		t.Errorf("expected first-inserted assistant, got %q", model)
 	}
 }
+
+// TestSearchPrompts_FTS5 covers the trigram-tokenizer search index — the
+// core promise is that substring queries (mid-word matches) work like the
+// old LIKE %x% query did, but with index support.
+func TestSearchPrompts_FTS5(t *testing.T) {
+	conn := openMem(t)
+	prompts := []struct {
+		uuid, ts, text string
+	}{
+		{"u1", "2025-06-01T10:00:00Z", "How do I deploy the app?"},
+		{"u2", "2025-06-02T10:00:00Z", "Deploying to production"},
+		{"u3", "2025-06-03T10:00:00Z", "Fix the auth bug"},
+		{"u4", "2025-06-04T10:00:00Z", "What is a buggy authentication flow?"},
+		{"u5", "2025-06-05T10:00:00Z", "unrelated content"},
+	}
+	for _, pr := range prompts {
+		insertMessage(t, conn, map[string]any{
+			"uuid": pr.uuid, "session_id": "s1", "project_slug": "proj",
+			"type": "user", "timestamp": pr.ts,
+			"prompt_text": pr.text, "prompt_chars": len(pr.text),
+		})
+	}
+
+	cases := []struct {
+		name      string
+		query     string
+		wantUUIDs map[string]bool
+	}{
+		{"substring mid-word", "dep", map[string]bool{"u1": true, "u2": true}},
+		{"case insensitive", "DEPLOY", map[string]bool{"u1": true, "u2": true}},
+		{"two-word AND", "auth bug", map[string]bool{"u3": true, "u4": true}},
+		{"two-word AND missing one", "deploy auth", map[string]bool{}},
+		{"special chars are escaped", `"weird*query"`, map[string]bool{}},
+		{"whitespace-only treated as no query", "   ", map[string]bool{
+			"u1": true, "u2": true, "u3": true, "u4": true, "u5": true,
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := db.SearchPrompts(conn, tc.query, "user", "", "")
+			if err != nil {
+				t.Fatalf("SearchPrompts(%q): %v", tc.query, err)
+			}
+			got := map[string]bool{}
+			for _, r := range rows {
+				if uuid, _ := r["user_uuid"].(string); uuid != "" {
+					got[uuid] = true
+				}
+			}
+			if len(got) != len(tc.wantUUIDs) {
+				t.Errorf("query %q: got %d rows, want %d (got %v, want %v)",
+					tc.query, len(got), len(tc.wantUUIDs), got, tc.wantUUIDs)
+			}
+			for uuid := range tc.wantUUIDs {
+				if !got[uuid] {
+					t.Errorf("query %q: missing expected uuid %q", tc.query, uuid)
+				}
+			}
+		})
+	}
+}
+
+// TestFTSBackfill_PopulatesExistingRows verifies that messages inserted before
+// the FTS index existed are still searchable after the one-time backfill runs.
+// This simulates upgrading an existing user's database.
+func TestFTSBackfill_PopulatesExistingRows(t *testing.T) {
+	conn := openMem(t)
+	// Insert via the regular helper so the AI trigger fires (simulating fresh
+	// install). Then drop the FTS rows and the backfill flag to simulate a
+	// pre-FTS database, and re-run the backfill.
+	insertMessage(t, conn, map[string]any{
+		"uuid": "old1", "session_id": "s1", "project_slug": "proj",
+		"type": "user", "timestamp": "2025-05-01T10:00:00Z",
+		"prompt_text": "deploy something old", "prompt_chars": 20,
+	})
+	if _, err := conn.Write.Exec(`DELETE FROM messages_fts`); err != nil {
+		t.Fatalf("clear fts: %v", err)
+	}
+	if _, err := conn.Write.Exec(`DELETE FROM plan WHERE k='fts_backfill_done'`); err != nil {
+		t.Fatalf("clear flag: %v", err)
+	}
+
+	// Search should fail to find the row because FTS is empty.
+	rows, _ := db.SearchPrompts(conn, "deploy", "user", "", "")
+	if len(rows) != 0 {
+		t.Fatalf("pre-backfill: expected 0 rows, got %d (FTS not actually empty?)", len(rows))
+	}
+
+	// Re-run initSchema by reopening — but openMem replaces. Instead invoke
+	// the backfill SQL directly against the already-open connection.
+	if _, err := conn.Write.Exec(
+		`INSERT INTO messages_fts(rowid, prompt_text)
+		 SELECT rowid, prompt_text FROM messages
+		 WHERE prompt_text IS NOT NULL AND prompt_text != ''`,
+	); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	rows, err := db.SearchPrompts(conn, "deploy", "user", "", "")
+	if err != nil {
+		t.Fatalf("search after backfill: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("post-backfill: expected 1 row, got %d", len(rows))
+	}
+}
