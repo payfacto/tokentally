@@ -13,9 +13,20 @@ interface OverageInfo {
   raw_output?: string[]
 }
 
+interface RTKGainResult {
+  efficiency: number
+  raw_output?: string[]
+  not_found?: boolean
+  error?: string
+}
+
 const info = ref<OverageInfo | null>(null)
 const loading = ref(false)
 const fetchError = ref<string | null>(null)
+
+const rtkResult = ref<RTKGainResult | null>(null)
+const rtkLoading = ref(false)
+const rtkError = ref<string | null>(null)
 
 async function check() {
   loading.value = true
@@ -29,11 +40,40 @@ async function check() {
     loading.value = false
   }
 }
+
+async function checkRTK() {
+  rtkLoading.value = true
+  rtkError.value = null
+  rtkResult.value = null
+  try {
+    rtkResult.value = await window.go.app.App.GetRTKGain()
+  } catch (e) {
+    rtkError.value = String(e)
+  } finally {
+    rtkLoading.value = false
+  }
+}
+
+function efficiencyColor(pct: number): string {
+  if (pct >= 75) return 'var(--good, #2d8a5e)'
+  if (pct >= 50) return 'var(--accent, #3b82f6)'
+  if (pct >= 25) return 'var(--warn, #b07800)'
+  return 'var(--error, #c03030)'
+}
+
+function efficiencyLabel(pct: number): string {
+  if (pct >= 75) return 'Excellent'
+  if (pct >= 50) return 'Good'
+  if (pct >= 25) return 'Needs Work'
+  return 'Poor'
+}
 </script>
 
 <template>
   <div style="padding:20px">
-    <div class="card" style="max-width:560px">
+
+    <!-- Overage Checker -->
+    <div class="card" style="max-width:560px;margin-bottom:20px">
       <h2 style="margin-top:0">Overage &amp; Auth Status</h2>
       <p class="muted" style="margin:-4px 0 16px;font-size:13px">
         Makes a quick test call to the Claude CLI to reveal your current auth mode,
@@ -92,6 +132,54 @@ async function check() {
         <pre style="font-size:11px;overflow:auto;max-height:300px;background:#1a1a1a;color:#d4d4d4;padding:10px;border-radius:4px;margin-top:8px">{{ info.raw_output.join('\n') }}</pre>
       </details>
     </div>
+
+    <!-- RTK Section -->
+    <div class="card" style="max-width:560px">
+      <h2 style="margin-top:0">RTK — Token Killer</h2>
+      <p class="muted" style="margin:-4px 0 4px;font-size:13px">
+        RTK is a CLI proxy that reduces LLM token consumption by 60-90% on common dev commands.
+      </p>
+      <p style="margin:0 0 16px;font-size:12px">
+        <a href="https://www.rtk-ai.app/" target="_blank" style="color:var(--accent)">rtk-ai.app →</a>
+      </p>
+
+      <button class="primary" :disabled="rtkLoading" @click="checkRTK">
+        <span v-if="rtkLoading" class="btn-spinner" aria-hidden="true"></span>
+        {{ rtkLoading ? 'Checking…' : 'Check RTK Gain' }}
+      </button>
+
+      <p v-if="rtkError" style="color:var(--error,#c03030);margin-top:14px">{{ rtkError }}</p>
+
+      <p v-if="rtkResult && rtkResult.not_found" style="color:var(--warn,#b07800);margin-top:14px">
+        RTK not found — install it from
+        <a href="https://www.rtk-ai.app/" target="_blank" style="color:var(--accent)">rtk-ai.app</a>
+      </p>
+
+      <p v-if="rtkResult && rtkResult.error" style="color:var(--error,#c03030);margin-top:14px">
+        {{ rtkResult.error }}
+      </p>
+
+      <div v-if="rtkResult && !rtkResult.not_found && !rtkResult.error" style="margin-top:20px">
+        <div style="margin-bottom:10px;font-size:13px;color:var(--muted)">Token Efficiency</div>
+        <div class="eff-meter-wrap">
+          <div class="eff-bar-track">
+            <div
+              class="eff-bar-fill"
+              :style="{ width: rtkResult.efficiency + '%', background: efficiencyColor(rtkResult.efficiency) }"
+            ></div>
+          </div>
+          <span class="eff-label" :style="{ color: efficiencyColor(rtkResult.efficiency) }">
+            {{ rtkResult.efficiency.toFixed(1) }}% — {{ efficiencyLabel(rtkResult.efficiency) }}
+          </span>
+        </div>
+      </div>
+
+      <details v-if="rtkResult && rtkResult.raw_output && rtkResult.raw_output.length" style="margin-top:16px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Raw output ({{ rtkResult.raw_output.length }} lines)</summary>
+        <pre style="font-size:11px;overflow:auto;max-height:300px;background:#1a1a1a;color:#d4d4d4;padding:10px;border-radius:4px;margin-top:8px">{{ rtkResult.raw_output.join('\n') }}</pre>
+      </details>
+    </div>
+
   </div>
 </template>
 
@@ -126,4 +214,28 @@ async function check() {
 }
 .badge-ok   { background: var(--good, #2d8a5e); color: #fff; }
 .badge-warn { background: var(--warn, #b07800); color: #fff; }
+
+.eff-meter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.eff-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface2, #2a2a2a);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.eff-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+.eff-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 180px;
+}
 </style>

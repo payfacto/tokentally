@@ -20,7 +20,7 @@ export default createRouter({
     { path: '/projects',       component: ProjectsView },
     { path: '/skills',         component: SkillsView },
     { path: '/tips',           component: TipsView },
-    { path: '/overage',        component: OverageView },
+    { path: '/tools',          component: OverageView },
     { path: '/settings',       component: SettingsView },
     { path: '/calculator',     component: CalculatorView },
   ],

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -644,6 +645,57 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 		}
 	}
 	return result, nil
+}
+
+// RTKGainResult holds parsed output from `rtk gain`.
+type RTKGainResult struct {
+	Efficiency float64  `json:"efficiency"`
+	RawOutput  []string `json:"raw_output,omitempty"`
+	NotFound   bool     `json:"not_found,omitempty"`
+	Error      string   `json:"error,omitempty"`
+}
+
+var ansiEscRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+var rtkPctRe = regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
+
+// GetRTKGain runs `rtk gain` and returns the token-efficiency percentage.
+func (a *App) GetRTKGain() (RTKGainResult, error) {
+	cmd := exec.Command("rtk", "gain")
+	hideConsole(cmd)
+
+	out, err := cmd.CombinedOutput()
+	clean := ansiEscRe.ReplaceAllString(string(out), "")
+	lines := rtkSplitLines(clean)
+
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return RTKGainResult{NotFound: true}, nil
+		}
+		return RTKGainResult{Error: err.Error(), RawOutput: lines}, nil
+	}
+
+	var best float64
+	for _, line := range lines {
+		for _, m := range rtkPctRe.FindAllStringSubmatch(line, -1) {
+			var v float64
+			fmt.Sscanf(m[1], "%f", &v)
+			if v > best && v <= 100 {
+				best = v
+			}
+		}
+	}
+
+	return RTKGainResult{Efficiency: best, RawOutput: lines}, nil
+}
+
+func rtkSplitLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimRight(l, "\r"); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func (a *App) getPlan() string {
