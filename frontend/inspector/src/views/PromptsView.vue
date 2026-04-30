@@ -59,7 +59,7 @@ function prettyPrompt(text: string): string {
 
 async function fetchRows() {
   if (sort.value.key === 'search') return
-  rows.value = await api<PromptRow[]>('/api/prompts?limit=100&sort=' + encodeURIComponent(sort.value.key))
+  rows.value = (await api<PromptRow[]>('/api/prompts?limit=100&sort=' + encodeURIComponent(sort.value.key))) ?? []
 }
 
 async function doSearch() {
@@ -71,7 +71,7 @@ async function doSearch() {
     const types = searchTypes.value.join(',')
     const params = new URLSearchParams({ q: searchQuery.value, types, from: searchFrom.value, to: searchTo.value })
     const result = await api<PromptRow[]>('/api/prompts/search?' + params.toString())
-    if (seq === searchSeq) searchRows.value = result
+    if (seq === searchSeq) searchRows.value = result ?? []
   } finally {
     if (seq === searchSeq) searchPending.value = false
   }
@@ -204,7 +204,7 @@ watch([searchQuery, searchTypes, searchFrom, searchTo], scheduleSearch)
                 </RouterLink>
               </td>
             </tr>
-            <tr v-if="!searchPending && !displayRows.length">
+            <tr v-if="!searchPending && !displayRows?.length">
               <td colspan="7" class="muted">{{ searchQuery || searchTypes.length < 3 ? 'no results' : 'enter a search term or adjust filters' }}</td>
             </tr>
           </tbody>
@@ -253,7 +253,7 @@ watch([searchQuery, searchTypes, searchFrom, searchTo], scheduleSearch)
                 </RouterLink>
               </td>
             </tr>
-            <tr v-if="!displayRows.length">
+            <tr v-if="!displayRows?.length">
               <td colspan="7" class="muted">no prompts yet</td>
             </tr>
           </tbody>
