@@ -4,7 +4,7 @@
   <img src="assets/banner.png" alt="TokenTally — See it. Spend it. Shrink it." width="680">
 </p>
 
-A desktop app for tracking Claude Code token usage, costs, and session history. Reads the JSONL transcripts that Claude Code writes to `~/.claude/projects/` and turns them into a live dashboard — no cloud, no account, no telemetry. Runs on Windows and macOS.
+A desktop app for tracking Claude Code token usage, costs, and session history. Reads the JSONL transcripts that Claude Code writes to `~/.claude/projects/` and turns them into a live dashboard — no cloud, no account, no telemetry. Runs on Windows, macOS, and Linux.
 
 ---
 
@@ -49,12 +49,12 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 
 ### Platform integration
 
-| Feature | Windows | macOS |
-| --- | --- | --- |
-| Desktop GUI (WebView2 / WebKit) | ✓ | ✓ |
-| System tray icon (Open, Scan Now, Quit) | ✓ | — |
-| Background Windows SCM service | ✓ | — |
-| Startup at login (Run registry key) | ✓ | — |
+| Feature | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Desktop GUI (WebView2 / WebKit) | ✓ | ✓ | ✓ |
+| System tray icon (Open, Scan Now, Quit) | ✓ | — | ✓ |
+| Background service (SCM / systemd) | ✓ | — | ✓ |
+| Startup at login | ✓ | — | ✓ |
 
 ---
 
@@ -63,6 +63,20 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 ### macOS
 
 Download `TokenTally.app` and open it, or build from source (see below).
+
+### Linux
+
+Download the `tokentally` binary and run it. Install the systemd user service and autostart entry with:
+
+```
+./tokentally --install
+```
+
+Uninstall with:
+
+```
+./tokentally --uninstall
+```
 
 ### Windows — quick start (no service)
 
@@ -86,8 +100,8 @@ tokentally.exe --uninstall
 
 ## Data
 
-| Item | Windows default | macOS default |
-|------|----------------|---------------|
+| Item | Windows default | macOS / Linux default |
+| --- | --- | --- |
 | Database | `%USERPROFILE%\.claude\tokentally.db` | `~/.claude/tokentally.db` |
 | Transcripts scanned | `%USERPROFILE%\.claude\projects\` | `~/.claude/projects/` |
 
@@ -145,11 +159,14 @@ wails build -platform windows/amd64
 
 # Windows — faster build (skips binding generation)
 wails build -platform windows/amd64 -skipbindings
+
+# Linux
+wails build -platform linux/amd64
 ```
 
-Output: `build/bin/TokenTally.app` (macOS) or `build/bin/tokentally.exe` (Windows).
+Output: `build/bin/TokenTally.app` (macOS), `build/bin/tokentally.exe` (Windows), or `build/bin/tokentally` (Linux).
 
-> **macOS note:** The system tray and background service are Windows-only. On macOS, closing the window quits the app.
+> **macOS note:** The system tray and background service are not available on macOS. Closing the window quits the app.
 
 ---
 
