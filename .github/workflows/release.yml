@@ -1,0 +1,99 @@
+name: Build
+
+# Triggered by the Bitbucket -> GitHub mirror (bitbucket-pipelines.yml).
+#
+# Behavior:
+#   - Push to main:     builds all three platforms, uploads artifacts (14d retention).
+#   - Push of v* tag:   builds all three platforms AND publishes a GitHub Release
+#                       with the archives attached.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write   # required for softprops/action-gh-release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            archive: tokentally-linux-amd64.tar.gz
+          - os: windows-latest
+            platform: windows/amd64
+            archive: tokentally-windows-amd64.zip
+          - os: macos-latest
+            platform: darwin/arm64
+            archive: tokentally-darwin-arm64.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so `git describe --tags` works
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config \
+            build-essential
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install frontend dependencies
+        run: npm install --prefix frontend/inspector
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: wails build -platform ${{ matrix.platform }} -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
+
+      - name: Package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: tar -czvf ${{ matrix.archive }} -C build/bin tokentally
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Compress-Archive -Path build/bin/tokentally.exe -DestinationPath ${{ matrix.archive }}
+
+      - name: Package (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cd build/bin && zip -r ../../${{ matrix.archive }} TokenTally.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          retention-days: 14
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.archive }}
+          draft: false
+          generate_release_notes: true

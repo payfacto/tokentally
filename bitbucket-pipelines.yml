@@ -1,0 +1,41 @@
+# Bitbucket Pipelines — mirror Bitbucket -> GitHub.
+#
+# Bitbucket is the source of truth. This pipeline force-pushes main and all
+# tags to a private GitHub repo, where GitHub Actions builds the binaries
+# (.github/workflows/release.yml).
+#
+# One-time setup:
+#   1. Repository settings -> Pipelines -> SSH keys -> Generate keys.
+#      Bitbucket creates a public/private SSH keypair for the runner.
+#   2. Copy the public key into the GitHub mirror repo:
+#      Settings -> Deploy keys -> Add deploy key -> "Allow write access".
+#   3. Add the GitHub host fingerprint:
+#      Repository settings -> Pipelines -> SSH keys -> Known hosts -> Add host
+#      "github.com".
+#   4. Replace YOUR_ORG/tokentally below with the actual GitHub mirror URL.
+#   5. Enable Pipelines: Repository settings -> Pipelines -> Settings -> Enable.
+#
+# Operational rule: never commit directly to the GitHub mirror — this pipeline
+# force-pushes and will overwrite any divergent state.
+
+image: alpine/git:latest
+
+clone:
+  depth: full
+
+definitions:
+  steps:
+    - step: &mirror-to-github
+        name: Mirror to GitHub
+        script:
+          - git remote add github git@github.com:payfacto/tokentally.git
+          - git push github main --force
+          - git push github --tags --force
+
+pipelines:
+  branches:
+    main:
+      - step: *mirror-to-github
+  tags:
+    'v*':
+      - step: *mirror-to-github

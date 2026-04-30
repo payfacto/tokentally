@@ -5,6 +5,7 @@ package main
 import (
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"tokentally/app"
 	"tokentally/internal/db"
+	"tokentally/internal/version"
 )
 
 //go:embed all:frontend
@@ -26,7 +28,13 @@ func main() {
 	flag.Bool("install", false, "")
 	flag.Bool("uninstall", false, "")
 	flag.Bool("service", false, "")
+	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("TokenTally version %s\n", version.Version)
+		return
+	}
 
 	dbPath := envOrDefault("TOKENTALLY_DB", filepath.Join(homeDir(), ".claude", "tokentally.db"))
 	projectsDir := envOrDefault("TOKENTALLY_PROJECTS_DIR", filepath.Join(homeDir(), ".claude", "projects"))

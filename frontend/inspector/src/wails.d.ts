@@ -6,6 +6,8 @@ declare global {
     go: {
       app: {
         App: {
+          // Build info
+          GetVersion(): Promise<string>
           // Sessions
           GetSessions(limit: number, since: string, until: string): Promise<Session[]>
           GetSessionsByProject(limit: number, projectSlug: string, since: string, until: string): Promise<Session[]>
