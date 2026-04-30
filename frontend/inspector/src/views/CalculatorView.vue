@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { encode, decode } from 'gpt-tokenizer'
 import { useAppStore } from '../stores/app'
 import { fmt } from '../lib/fmt'
@@ -9,11 +9,82 @@ const store = useAppStore()
 const text = ref('')
 const models = ref<ModelRate[]>([])
 
+const ctxMenu = ref({ visible: false, x: 0, y: 0 })
+const isDragging = ref(false)
+const fileError = ref('')
+
 onMounted(async () => {
   try {
     models.value = await window.go.app.App.GetPricingModels()
   } catch { /* not in Wails env */ }
+  document.addEventListener('mousedown', hideCtxMenu)
 })
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', hideCtxMenu)
+})
+
+function showCtxMenu(e: MouseEvent) {
+  ctxMenu.value = { visible: true, x: e.clientX, y: e.clientY }
+}
+
+function hideCtxMenu() {
+  ctxMenu.value.visible = false
+}
+
+async function pasteFromClipboard() {
+  hideCtxMenu()
+  try {
+    const clip = await navigator.clipboard.readText()
+    text.value += clip
+  } catch { /* clipboard access denied */ }
+}
+
+function onDragOver() { isDragging.value = true }
+function onDragLeave() { isDragging.value = false }
+
+async function onDrop(e: DragEvent) {
+  isDragging.value = false
+  const file = e.dataTransfer?.files[0]
+  if (file) await loadFile(file)
+}
+
+async function onFileSelect(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (file) await loadFile(file)
+  ;(e.target as HTMLInputElement).value = ''
+}
+
+function looksLikeBinary(content: string): boolean {
+  const sample = content.slice(0, 8000)
+  let bad = 0
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample.charCodeAt(i)
+    if (c === 0 || (c < 32 && c !== 9 && c !== 10 && c !== 13)) bad++
+  }
+  return sample.length > 0 && bad / sample.length > 0.02
+}
+
+function loadFile(file: File): Promise<void> {
+  fileError.value = ''
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const content = e.target?.result as string
+      if (looksLikeBinary(content)) {
+        fileError.value = `"${file.name}" looks like a binary file — only text files are supported.`
+      } else {
+        text.value = content
+      }
+      resolve()
+    }
+    reader.onerror = () => {
+      fileError.value = `Could not read "${file.name}".`
+      resolve()
+    }
+    reader.readAsText(file)
+  })
+}
 
 const tokenIds = computed(() => text.value ? encode(text.value) : [])
 
@@ -92,12 +163,40 @@ const sortedModels = computed(() =>
     <div class="calc-inner">
       <h2 class="page-title">Token Calculator</h2>
 
-      <textarea
-        v-model="text"
-        class="calc-input"
-        placeholder="Paste or type your text here to count tokens…"
-        spellcheck="false"
-      />
+      <div
+        class="input-wrapper"
+        :class="{ 'drop-active': isDragging }"
+        @dragover.prevent="onDragOver"
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+      >
+        <textarea
+          v-model="text"
+          class="calc-input"
+          placeholder="Paste or type your text here to count tokens…"
+          spellcheck="false"
+          @contextmenu.prevent="showCtxMenu"
+        />
+        <div v-if="isDragging" class="drop-overlay">Drop file to load text</div>
+      </div>
+
+      <div class="input-actions">
+        <label class="btn-upload">
+          <input type="file" style="display:none" @change="onFileSelect" />
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload file
+        </label>
+        <span v-if="fileError" class="file-error">{{ fileError }}</span>
+      </div>
+
+      <div
+        v-if="ctxMenu.visible"
+        class="ctx-menu"
+        :style="{ top: ctxMenu.y + 'px', left: ctxMenu.x + 'px' }"
+        @mousedown.stop
+      >
+        <button class="ctx-item" @mousedown.prevent="pasteFromClipboard">Paste</button>
+      </div>
 
       <div class="stats-row">
         <div class="stat-card accent">
@@ -174,6 +273,51 @@ const sortedModels = computed(() =>
 .calc-page { padding: 20px; overflow-y: auto; height: calc(100vh - 48px); background: var(--bg); }
 .calc-inner { max-width: 960px; margin: 0 auto; }
 .page-title { margin: 0 0 16px; font-size: 16px; letter-spacing: -0.01em; }
+
+.input-wrapper { position: relative; }
+.input-wrapper.drop-active .calc-input { border-color: var(--accent); opacity: 0.5; }
+.drop-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.input-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px;
+}
+.btn-upload {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--muted); cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: transparent; font-family: inherit;
+  transition: color 120ms, border-color 120ms;
+  user-select: none;
+}
+.btn-upload:hover { color: var(--text); border-color: var(--text); }
+.file-error { font-size: 12px; color: var(--warn, #e07b39); font-family: var(--mono); }
+
+.ctx-menu {
+  position: fixed; z-index: 9999;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  min-width: 100px;
+}
+.ctx-item {
+  display: block; width: 100%;
+  padding: 6px 14px; text-align: left;
+  background: transparent; border: none;
+  font-size: 13px; color: var(--text); font-family: inherit;
+  cursor: pointer;
+}
+.ctx-item:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 .calc-input {
   width: 100%;
