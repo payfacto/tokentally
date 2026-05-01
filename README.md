@@ -60,7 +60,14 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 
 ## Installation
 
-### macOS
+### Homebrew (macOS)
+
+```bash
+brew tap payfacto/tap
+brew install --cask payfacto/tap/tokentally
+```
+
+### macOS (manual)
 
 Download `TokenTally.app` and open it, or build from source (see below).
 
@@ -241,7 +248,13 @@ Checklist:
    git push origin v1.2.3
    ```
 
-5. Watch the build in the GitHub mirror's Actions tab. When it goes green a new entry appears under Releases with `tokentally-windows-amd64.zip`, `tokentally-darwin-arm64.zip`, and `tokentally-linux-amd64.tar.gz` attached.
+5. Watch the build in the GitHub mirror's Actions tab. When it goes green a new entry appears under Releases with `tokentally-windows-amd64.zip`, `tokentally-darwin-arm64.zip`, and `tokentally-linux-amd64.tar.gz` attached. A second `brew-tap` job then updates `payfacto/homebrew-tap` automatically.
+
+6. Verify the published Homebrew cask:
+
+   ```bash
+   brew update && brew upgrade --cask tokentally
+   ```
 
 #### Fixing a broken tag
 

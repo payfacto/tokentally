@@ -112,3 +112,56 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
             || true
           gh release upload "$GITHUB_REF_NAME" "${{ matrix.archive }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  brew-tap:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute bare version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download macOS arm64 archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "$GITHUB_REF_NAME" --pattern "tokentally-darwin-arm64.zip" --repo "$GITHUB_REPOSITORY"
+
+      - name: Compute SHA256
+        id: sha
+        run: echo "arm64=$(sha256sum tokentally-darwin-arm64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: payfacto/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update cask formula
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.arm64 }}
+        run: |
+          cat > homebrew-tap/tokentally.rb << EOF
+          cask "tokentally" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/payfacto/tokentally/releases/download/v#{version}/tokentally-darwin-arm64.zip"
+            name "TokenTally"
+            desc "Claude Code token usage dashboard"
+            homepage "https://github.com/payfacto/tokentally"
+
+            app "TokenTally.app"
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/tokentally.rb
+          git diff --cached --quiet || git commit -m "chore: bump tokentally to ${{ steps.ver.outputs.version }}"
+          git push

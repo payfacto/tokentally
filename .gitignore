@@ -51,9 +51,6 @@ desktop.ini
 # Git worktrees
 .worktrees/
 
-# Temp / handoff
-HANDOFF.md
-
 # Claude Code tooling
 .claude/
 .superpowers/
