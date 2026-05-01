@@ -55,7 +55,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             pkg-config \
-            build-essential
+            build-essential \
+            xvfb
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -74,11 +75,14 @@ jobs:
         run: |
           # Ubuntu 24.04 ships webkit2gtk-4.1; Wails v2 defaults to 4.0.
           # The webkit2_41 build tag selects the 4.1 cgo bindings.
+          # xvfb-run is required on Linux: wailsbindings is a GTK app that needs a display.
           TAGS=""
+          RUNNER=""
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             TAGS="-tags webkit2_41"
+            RUNNER="xvfb-run --auto-servernum"
           fi
-          wails build -platform ${{ matrix.platform }} $TAGS -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
+          $RUNNER wails build -platform ${{ matrix.platform }} $TAGS -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
