@@ -147,7 +147,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           SHA256: ${{ steps.sha.outputs.arm64 }}
         run: |
-          cat > homebrew-tap/tokentally.rb << EOF
+          cat > homebrew-tap/casks/tokentally.rb << EOF
           cask "tokentally" do
             version "${VERSION}"
             sha256 "${SHA256}"
@@ -166,6 +166,6 @@ jobs:
           cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/tokentally.rb
+          git add casks/tokentally.rb
           git diff --cached --quiet || git commit -m "chore: bump tokentally to ${{ steps.ver.outputs.version }}"
           git push
