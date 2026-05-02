@@ -33,6 +33,14 @@ interface SessionRow {
   project_slug: string; project_name: string
 }
 interface ToolRow { tool_name: string; calls: number }
+interface ContextHealth {
+  line_count: number
+  rule_count: number
+  claude_kb: number
+  mcp_count: number
+  hook_count: number
+  settings_kb: number
+}
 
 const totals   = ref<Record<string, number>>({})
 const projects = ref<ProjectRow[]>([])
@@ -40,6 +48,8 @@ const sessions = ref<SessionRow[]>([])
 const tools    = ref<ToolRow[]>([])
 const daily    = ref<DailyRow[]>([])
 const byModel  = ref<ByModelRow[]>([])
+const contextHealth = ref<ContextHealth | null>(null)
+const healthLoading = ref(true)
 
 const chDailyBillable = ref<HTMLElement | null>(null)
 const chDailyCache    = ref<HTMLElement | null>(null)
@@ -122,13 +132,33 @@ function renderCharts() {
   }
 }
 
+async function loadContextHealth() {
+  healthLoading.value = true
+  try {
+    contextHealth.value = await api<ContextHealth>('/api/context-health')
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+function lineCountColor(): string {
+  if (healthLoading.value || !contextHealth.value) return ''
+  const n = contextHealth.value.line_count
+  if (n <= 200) return 'var(--good)'
+  if (n <= 300) return 'var(--warn)'
+  return 'var(--bad)'
+}
+
 const cacheCreate = computed(() =>
   (totals.value.cache_create_5m_tokens || 0) + (totals.value.cache_create_1h_tokens || 0)
 )
 
 const planEntry = computed(() => store.pricing?.plans?.[store.plan])
 
-onMounted(fetchAll)
+onMounted(() => {
+  fetchAll()
+  loadContextHealth()
+})
 onUnmounted(() => {
   disposeChart(chDailyBillable.value)
   disposeChart(chDailyCache.value)
@@ -243,6 +273,46 @@ watch([rangeKey, () => store.lastScan], fetchAll)
             <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="flex" style="margin-bottom:14px">
+        <div>
+          <h3 style="margin:0">Context health</h3>
+          <p class="muted" style="margin:2px 0 0;font-size:11px">settings &amp; CLAUDE.md</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="ghost" :disabled="healthLoading" @click="loadContextHealth"
+                style="font-size:12px;padding:4px 10px">↻ Refresh</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px">
+        <div class="kpi">
+          <div class="label">CLAUDE.md lines</div>
+          <div class="value" :style="{ color: lineCountColor() }">
+            {{ healthLoading ? '–' : (contextHealth?.line_count ?? 0) }}
+          </div>
+        </div>
+        <div class="kpi">
+          <div class="label">CLAUDE.md rules</div>
+          <div class="value">{{ healthLoading ? '–' : (contextHealth?.rule_count ?? 0) }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">CLAUDE.md size</div>
+          <div class="value">{{ healthLoading ? '–' : (contextHealth?.claude_kb ?? 0).toFixed(1) + 'k' }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">MCP servers</div>
+          <div class="value">{{ healthLoading ? '–' : (contextHealth?.mcp_count ?? 0) }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Hooks configured</div>
+          <div class="value">{{ healthLoading ? '–' : (contextHealth?.hook_count ?? 0) }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">settings.json size</div>
+          <div class="value">{{ healthLoading ? '–' : (contextHealth?.settings_kb ?? 0).toFixed(1) + 'k' }}</div>
+        </div>
       </div>
     </div>
   </div>

@@ -22,6 +22,7 @@ declare global {
           GetByModel(since: string, until: string): Promise<unknown[]>
           GetSkills(since: string, until: string): Promise<unknown[]>
           GetTips(): Promise<unknown[]>
+          GetContextHealth(): Promise<unknown>
           DismissTip(key: string): Promise<void>
           ScanNow(): Promise<ScanResult>
           // Plan

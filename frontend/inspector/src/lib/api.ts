@@ -33,7 +33,8 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/daily':    (qs) => App().GetDaily(qs.since || '', qs.until || ''),
   '/api/by-model': (qs) => App().GetByModel(qs.since || '', qs.until || ''),
   '/api/skills':   (qs) => App().GetSkills(qs.since || '', qs.until || ''),
-  '/api/tips':     (_)  => App().GetTips(),
+  '/api/tips':          (_) => App().GetTips(),
+  '/api/context-health': (_) => App().GetContextHealth(),
   '/api/plan':     (_)  => App().GetPlan(),
   '/api/scan':     (_)  => App().ScanNow(),
 }
