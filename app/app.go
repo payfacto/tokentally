@@ -200,6 +200,68 @@ type overviewResult struct {
 	CostUSD             *float64 `json:"cost_usd"`
 }
 
+type contextHealthResult struct {
+	LineCount  int     `json:"line_count"`
+	RuleCount  int     `json:"rule_count"`
+	ClaudeKB   float64 `json:"claude_kb"`
+	MCPCount   int     `json:"mcp_count"`
+	HookCount  int     `json:"hook_count"`
+	SettingsKB float64 `json:"settings_kb"`
+}
+
+func (a *App) GetContextHealth() (contextHealthResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return contextHealthResult{}, nil
+	}
+	var result contextHealthResult
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if info, err := os.Stat(settingsPath); err == nil {
+		result.SettingsKB = float64(info.Size()) / 1024.0
+		if data, err := os.ReadFile(settingsPath); err == nil {
+			var raw map[string]json.RawMessage
+			if json.Unmarshal(data, &raw) == nil {
+				if mcpRaw, ok := raw["mcpServers"]; ok {
+					var m map[string]json.RawMessage
+					if json.Unmarshal(mcpRaw, &m) == nil {
+						result.MCPCount = len(m)
+					}
+				}
+				if hooksRaw, ok := raw["hooks"]; ok {
+					var hooksMap map[string]json.RawMessage
+					if json.Unmarshal(hooksRaw, &hooksMap) == nil {
+						for _, v := range hooksMap {
+							var arr []json.RawMessage
+							if json.Unmarshal(v, &arr) == nil {
+								result.HookCount += len(arr)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	claudePath := filepath.Join(home, ".claude", "CLAUDE.md")
+	if info, err := os.Stat(claudePath); err == nil {
+		result.ClaudeKB = float64(info.Size()) / 1024.0
+		if f, err := os.Open(claudePath); err == nil {
+			defer f.Close()
+			sc := bufio.NewScanner(f)
+			for sc.Scan() {
+				result.LineCount++
+				t := strings.TrimLeft(sc.Text(), " \t")
+				if strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ") {
+					result.RuleCount++
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // GetVersion returns the embedded build version (e.g. "v1.2.3" or "dev").
 func (a *App) GetVersion() string {
 	return version.Version
