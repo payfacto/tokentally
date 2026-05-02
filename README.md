@@ -14,7 +14,7 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 
 | Tab | What it shows |
 | --- | --- |
-| **Overview** | Aggregate token usage, cost totals, cache performance, and daily trend chart |
+| **Overview** | Aggregate token usage, cost totals, cache performance, daily trend charts, and a **Context health** panel (CLAUDE.md line/rule count and size; MCP server and hook counts from `~/.claude/settings.json`) |
 | **Prompts** | Most expensive prompts across all sessions — searchable, sortable, with per-prompt cost breakdown |
 | **Sessions** | Session list with turn-by-turn drilldown; hook/attachment rows shown inline |
 | **Projects** | Per-project token and cost summaries |
