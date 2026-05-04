@@ -1,6 +1,13 @@
 package tips
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"tokentally/internal/db"
 )
 
@@ -9,7 +16,21 @@ const (
 	highOutputRatioThreshold = 0.5
 	shortSessionTurnRatio    = 3.0
 	manySessionsMin          = 10
+	lowReadEditMinEdits      = 20  // minimum edit count before the ratio is meaningful
+	lowReadEditRatioCeiling  = 0.3 // reads/edits ratio below which the tip fires
+	unusedMCPMinSessions     = 5
+	mcpConfiguredCacheTTL    = 30 * time.Second
 )
+
+// ConfiguredMCPLoader returns the number of MCP servers in settings.json.
+// Override in tests to avoid filesystem access.
+var ConfiguredMCPLoader func() int = loadConfiguredMCP
+
+var mcpConfiguredCache struct {
+	mu      sync.Mutex
+	value   int
+	expires time.Time
+}
 
 type tip struct {
 	Key     string
@@ -60,6 +81,30 @@ var allTipDefs = []tip{
 			return sessions > manySessionsMin && float64(turns)/float64(sessions) < shortSessionTurnRatio
 		},
 	},
+	{
+		Key:   "low-read-edit-ratio",
+		Title: "Low read-to-edit ratio",
+		Body:  "Claude is editing files much more than it reads them. Reading before editing reduces retries and wasted tokens.",
+		Applies: func(s map[string]any) bool {
+			edits := intVal(s["edit_calls"])
+			reads := intVal(s["read_calls"])
+			if edits < lowReadEditMinEdits {
+				return false
+			}
+			return float64(reads)/float64(edits) < lowReadEditRatioCeiling
+		},
+	},
+	{
+		Key:   "unused-mcp-servers",
+		Title: "MCP servers configured but never called",
+		Body:  "You have MCP servers configured in settings.json but none were invoked in recent sessions.",
+		Applies: func(s map[string]any) bool {
+			configuredMCP := intVal(s["mcp_configured"])
+			mcpCalls := intVal(s["mcp_calls"])
+			sessions := intVal(s["sessions"])
+			return configuredMCP > 0 && mcpCalls == 0 && sessions >= unusedMCPMinSessions
+		},
+	},
 }
 
 func intVal(v any) int64 {
@@ -87,6 +132,27 @@ func AllTips(p *db.Pool) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	toolCounts, err := db.ToolCallCounts(p, "", "")
+	if err != nil {
+		return nil, err
+	}
+	var editCalls, readCalls, mcpCalls int64
+	for name, cnt := range toolCounts {
+		switch name {
+		case "Edit", "Write", "MultiEdit":
+			editCalls += cnt
+		case "Read":
+			readCalls += cnt
+		}
+		if strings.HasPrefix(name, "mcp__") {
+			mcpCalls += cnt
+		}
+	}
+	stats["edit_calls"] = editCalls
+	stats["read_calls"] = readCalls
+	stats["mcp_calls"] = mcpCalls
+	stats["mcp_configured"] = int64(countConfiguredMCP())
+
 	var result []map[string]any
 	for _, t := range allTipDefs {
 		if dismissed[t.Key] {
@@ -104,4 +170,42 @@ func AllTips(p *db.Pool) ([]map[string]any, error) {
 		result = append(result, m)
 	}
 	return result, nil
+}
+
+func countConfiguredMCP() int {
+	now := time.Now()
+	mcpConfiguredCache.mu.Lock()
+	if now.Before(mcpConfiguredCache.expires) {
+		v := mcpConfiguredCache.value
+		mcpConfiguredCache.mu.Unlock()
+		return v
+	}
+	mcpConfiguredCache.mu.Unlock()
+
+	v := ConfiguredMCPLoader()
+
+	mcpConfiguredCache.mu.Lock()
+	mcpConfiguredCache.value = v
+	mcpConfiguredCache.expires = now.Add(mcpConfiguredCacheTTL)
+	mcpConfiguredCache.mu.Unlock()
+
+	return v
+}
+
+func loadConfiguredMCP() int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		return 0
+	}
+	var raw struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return 0
+	}
+	return len(raw.MCPServers)
 }
