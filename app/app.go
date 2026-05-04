@@ -349,6 +349,18 @@ func (a *App) GetBashCommands(since, until string) ([]map[string]any, error) {
 	return db.BashCommandBreakdown(a.conn, since, until)
 }
 
+func (a *App) GetMCPServers(since, until string) ([]map[string]any, error) {
+	return db.MCPBreakdown(a.conn, since, until)
+}
+
+func (a *App) GetActivities(since, until string) ([]map[string]any, error) {
+	return db.ActivityBreakdown(a.conn, since, until)
+}
+
+func (a *App) GetOneShotRate(since, until string) (map[string]any, error) {
+	return db.OneShotStats(a.conn, since, until)
+}
+
 func (a *App) GetDaily(since, until string) ([]map[string]any, error) {
 	return db.DailyBreakdown(a.conn, since, until)
 }
@@ -363,6 +375,24 @@ func (a *App) GetByModel(since, until string) ([]map[string]any, error) {
 		c := pricing.CostFor(model, usageFromRow(r), a.getPricing(), a.getPlan())
 		r["cost_usd"] = c
 		r["cost_estimated"] = (c == nil)
+	}
+	return rows, nil
+}
+
+func (a *App) GetModelComparison(since, until string) ([]map[string]any, error) {
+	rows, err := db.ModelComparisonStats(a.conn, since, until)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		model, _ := r["model"].(string)
+		c := pricing.CostFor(model, usageFromRow(r), a.getPricing(), a.getPlan())
+		r["cost_usd"] = c
+		turns := asInt64(r["turns"])
+		if c != nil && turns > 0 {
+			cpt := *c / float64(turns)
+			r["cost_per_turn"] = cpt
+		}
 	}
 	return rows, nil
 }
@@ -732,16 +762,16 @@ type RTKCommandRow struct {
 
 // RTKGainResult holds parsed output from `rtk gain`.
 type RTKGainResult struct {
-	Efficiency    float64          `json:"efficiency"`
-	TotalCommands int              `json:"total_commands"`
-	InputTokens   string           `json:"input_tokens"`
-	OutputTokens  string           `json:"output_tokens"`
-	TokensSaved   string           `json:"tokens_saved"`
-	TotalExecTime string           `json:"total_exec_time"`
-	Commands      []RTKCommandRow  `json:"commands,omitempty"`
-	RawOutput     []string         `json:"raw_output,omitempty"`
-	NotFound      bool             `json:"not_found,omitempty"`
-	Error         string           `json:"error,omitempty"`
+	Efficiency    float64         `json:"efficiency"`
+	TotalCommands int             `json:"total_commands"`
+	InputTokens   string          `json:"input_tokens"`
+	OutputTokens  string          `json:"output_tokens"`
+	TokensSaved   string          `json:"tokens_saved"`
+	TotalExecTime string          `json:"total_exec_time"`
+	Commands      []RTKCommandRow `json:"commands,omitempty"`
+	RawOutput     []string        `json:"raw_output,omitempty"`
+	NotFound      bool            `json:"not_found,omitempty"`
+	Error         string          `json:"error,omitempty"`
 }
 
 var ansiEscRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)

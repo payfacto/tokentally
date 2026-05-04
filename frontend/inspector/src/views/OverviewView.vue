@@ -33,6 +33,10 @@ interface SessionRow {
   project_slug: string; project_name: string
 }
 interface ToolRow { tool_name: string; calls: number }
+interface MCPRow { server: string; calls: number }
+interface ActivityRow { category: string; turns: number; input_tokens: number; output_tokens: number }
+interface OneShotStats { total_edits: number; retry_edits: number; one_shot_rate?: number }
+interface BashRow { cmd: string; calls: number }
 interface ContextHealth {
   line_count: number
   rule_count: number
@@ -48,6 +52,9 @@ const sessions = ref<SessionRow[]>([])
 const tools    = ref<ToolRow[]>([])
 const daily    = ref<DailyRow[]>([])
 const byModel  = ref<ByModelRow[]>([])
+const mcpServers = ref<MCPRow[]>([])
+const activities = ref<ActivityRow[]>([])
+const oneShotStats = ref<OneShotStats | null>(null)
 const contextHealth = ref<ContextHealth | null>(null)
 const healthLoading = ref(true)
 
@@ -57,14 +64,14 @@ const chModel         = ref<HTMLElement | null>(null)
 const chProjects      = ref<HTMLElement | null>(null)
 const chTools         = ref<HTMLElement | null>(null)
 const chBash = ref<HTMLElement | null>(null)
-interface BashRow { cmd: string; calls: number }
+const chActivities = ref<HTMLElement | null>(null)
 const bashCmds = ref<BashRow[]>([])
 
 const TOP_CHART_LIMIT = 8
 
 async function fetchAll() {
   const since = sinceIso(range.value)
-  const [t, p, s, tl, d, bm, bc] = await Promise.all([
+  const [t, p, s, tl, d, bm, bc, mcp, act, oneShot] = await Promise.all([
     api<Record<string, number>>(withSince('/api/overview', since)),
     api<ProjectRow[]>(withSince('/api/projects', since)),
     api<SessionRow[]>(withSince('/api/sessions?limit=10', since)),
@@ -72,6 +79,9 @@ async function fetchAll() {
     api<DailyRow[]>(withSince('/api/daily', since)),
     api<ByModelRow[]>(withSince('/api/by-model', since)),
     api<BashRow[]>(withSince('/api/bash-commands', since)),
+    api<MCPRow[]>(withSince('/api/mcp-servers', since)),
+    api<ActivityRow[]>(withSince('/api/activities', since)),
+    api<OneShotStats>(withSince('/api/one-shot', since)),
   ])
   totals.value   = t
   projects.value = p
@@ -80,6 +90,9 @@ async function fetchAll() {
   daily.value    = d
   byModel.value  = bm
   bashCmds.value = bc
+  mcpServers.value = mcp
+  activities.value = act
+  oneShotStats.value = oneShot
   await nextTick()
   renderCharts()
 }
@@ -143,6 +156,14 @@ function renderCharts() {
       color: '#8e6bbf',
     })
   }
+  const topActivities = activities.value.slice(0, TOP_CHART_LIMIT)
+  if (chActivities.value && topActivities.length) {
+    barChart(chActivities.value, {
+      categories: topActivities.map(a => a.category),
+      values: topActivities.map(a => a.turns),
+      color: '#7c5cbf',
+    })
+  }
 }
 
 async function loadContextHealth() {
@@ -179,6 +200,7 @@ onUnmounted(() => {
   disposeChart(chProjects.value)
   disposeChart(chTools.value)
   disposeChart(chBash.value)
+  disposeChart(chActivities.value)
 })
 watch([rangeKey, () => store.lastScan], fetchAll)
 </script>
@@ -229,6 +251,17 @@ watch([rangeKey, () => store.lastScan], fetchAll)
           <div class="label">Cache create</div>
           <div class="value" :title="fmt.int(cacheCreate) + ' tokens'">{{ fmt.compact(cacheCreate) }}</div>
         </div>
+        <div
+          v-if="oneShotStats && oneShotStats.total_edits > 0"
+          class="card kpi"
+          data-tooltip="Percentage of file edits that did not need another edit to the same file in the same session."
+        >
+          <div class="label">One-shot rate</div>
+          <div class="value">
+            {{ oneShotStats.one_shot_rate != null ? Math.round(oneShotStats.one_shot_rate * 100) + '%' : '–' }}
+          </div>
+          <div class="sub">{{ fmt.int(oneShotStats.total_edits) }} edits</div>
+        </div>
         <!-- Cost KPI -->
         <div class="card kpi cost" data-tooltip="Estimated spend based on token counts and current API pricing. Subscription plan cost shown as a flat monthly fee with token-equivalent below.">
           <div class="label">Est. cost</div>
@@ -269,26 +302,46 @@ watch([rangeKey, () => store.lastScan], fetchAll)
       </div>
     </div>
 
-    <div class="row cols-3" style="margin-top:16px">
+    <div class="row cols-2" style="margin-top:16px">
       <div class="card"><h3>Top tools (by call count)</h3><div ref="chTools" style="height:320px"></div></div>
       <div class="card"><h3>Shell commands (Bash)</h3><div ref="chBash" style="height:320px"></div></div>
-      <div class="card">
-        <h3 style="display:flex;align-items:center">
-          <span>Recent sessions</span><span class="spacer"></span>
-          <RouterLink to="/sessions" style="font-weight:400;font-size:12px">all →</RouterLink>
-        </h3>
-        <table>
-          <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
-          <tbody>
-            <tr v-for="s in sessions" :key="s.session_id">
-              <td class="mono">{{ fmt.ts(s.started) }}</td>
-              <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id)">{{ s.project_name || s.project_slug }}</RouterLink></td>
-              <td class="num">{{ fmt.compact(s.tokens) }}</td>
-            </tr>
-            <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>
-          </tbody>
-        </table>
-      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3 style="display:flex;align-items:center">
+        <span>Recent sessions</span><span class="spacer"></span>
+        <RouterLink to="/sessions" style="font-weight:400;font-size:12px">all →</RouterLink>
+      </h3>
+      <table>
+        <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
+        <tbody>
+          <tr v-for="s in sessions" :key="s.session_id">
+            <td class="mono">{{ fmt.ts(s.started) }}</td>
+            <td><RouterLink :to="'/sessions/' + encodeURIComponent(s.session_id)">{{ s.project_name || s.project_slug }}</RouterLink></td>
+            <td class="num">{{ fmt.compact(s.tokens) }}</td>
+          </tr>
+          <tr v-if="!sessions.length"><td colspan="3" class="muted">no sessions in this range</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="mcpServers.length" class="card" style="margin-top:16px">
+      <h3>MCP server calls</h3>
+      <table>
+        <thead><tr><th>server</th><th class="num">calls</th></tr></thead>
+        <tbody>
+          <tr v-for="m in mcpServers" :key="m.server">
+            <td>{{ m.server }}</td>
+            <td class="num">{{ fmt.int(m.calls) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Activity breakdown</h3>
+      <p class="muted" style="margin:-4px 0 10px;font-size:12px">Classified by tool usage patterns per assistant turn.</p>
+      <div ref="chActivities" style="height:260px"></div>
     </div>
 
     <div class="card" style="margin-top:16px">

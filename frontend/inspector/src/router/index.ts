@@ -8,6 +8,7 @@ import TipsView        from '../views/TipsView.vue'
 import SettingsView    from '../views/SettingsView.vue'
 import CalculatorView  from '../views/CalculatorView.vue'
 import OverageView     from '../views/OverageView.vue'
+import CompareView     from '../views/CompareView.vue'
 
 export default createRouter({
   history: createWebHashHistory(),
@@ -21,6 +22,7 @@ export default createRouter({
     { path: '/skills',         component: SkillsView },
     { path: '/tips',           component: TipsView },
     { path: '/tools',          component: OverageView },
+    { path: '/compare',        component: CompareView },
     { path: '/settings',       component: SettingsView },
     { path: '/calculator',     component: CalculatorView },
   ],

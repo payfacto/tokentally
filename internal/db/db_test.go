@@ -121,8 +121,8 @@ func insertMessage(t *testing.T, conn *db.Pool, fields map[string]any) {
 			uuid, session_id, project_slug, type, timestamp,
 			input_tokens, output_tokens, cache_read_tokens,
 			cache_create_5m_tokens, cache_create_1h_tokens,
-			parent_uuid, model, prompt_text, prompt_chars, is_sidechain
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			parent_uuid, model, prompt_text, prompt_chars, is_sidechain, category
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		fields["uuid"], fields["session_id"], fields["project_slug"],
 		fields["type"], fields["timestamp"],
 		toInt64(fields["input_tokens"]), toInt64(fields["output_tokens"]),
@@ -130,7 +130,7 @@ func insertMessage(t *testing.T, conn *db.Pool, fields map[string]any) {
 		toInt64(fields["cache_create_1h_tokens"]),
 		fields["parent_uuid"], fields["model"],
 		fields["prompt_text"], fields["prompt_chars"],
-		toInt64(fields["is_sidechain"]),
+		toInt64(fields["is_sidechain"]), fields["category"],
 	)
 	if err != nil {
 		t.Fatalf("insertMessage failed: %v", err)
@@ -1034,4 +1034,145 @@ func TestBashCommandBreakdown(t *testing.T) {
 	assertInt64(t, rows[0], "calls", 2)
 	assertString(t, rows[1], "cmd", "npm")
 	assertInt64(t, rows[1], "calls", 1)
+}
+
+func TestMCPBreakdown(t *testing.T) {
+	conn := openMem(t)
+	for _, tc := range []map[string]any{
+		{"message_uuid": "m1", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "mcp__zoho__createTicket", "timestamp": "2025-06-01T10:00:00Z"},
+		{"message_uuid": "m2", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "mcp__zoho__getTicket", "timestamp": "2025-06-01T10:01:00Z"},
+		{"message_uuid": "m3", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "mcp__github__createPR", "timestamp": "2025-06-01T10:02:00Z"},
+		{"message_uuid": "m3a", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "mcp__malformed", "timestamp": "2025-06-01T10:02:30Z"},
+		{"message_uuid": "m3b", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "mcp____emptyserver__noop", "timestamp": "2025-06-01T10:02:40Z"},
+		{"message_uuid": "m4", "session_id": "s1", "project_slug": "p1",
+			"tool_name": "Bash", "timestamp": "2025-06-01T10:03:00Z"},
+	} {
+		insertToolCall(t, conn, tc)
+	}
+
+	rows, err := db.MCPBreakdown(conn, "", "")
+	if err != nil {
+		t.Fatalf("MCPBreakdown: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 mcp rows (zoho, github), got %d", len(rows))
+	}
+	assertString(t, rows[0], "server", "zoho")
+	assertInt64(t, rows[0], "calls", 2)
+	assertString(t, rows[1], "server", "github")
+	assertInt64(t, rows[1], "calls", 1)
+}
+
+func TestActivityBreakdown(t *testing.T) {
+	conn := openMem(t)
+	insertMessage(t, conn, map[string]any{
+		"uuid": "a1", "session_id": "s1", "project_slug": "p1",
+		"type": "assistant", "timestamp": "2025-06-01T10:00:00Z",
+		"category": "Coding",
+	})
+	insertMessage(t, conn, map[string]any{
+		"uuid": "a2", "session_id": "s1", "project_slug": "p1",
+		"type": "assistant", "timestamp": "2025-06-01T10:01:00Z",
+		"category": "Coding",
+	})
+	insertMessage(t, conn, map[string]any{
+		"uuid": "a3", "session_id": "s1", "project_slug": "p1",
+		"type": "assistant", "timestamp": "2025-06-01T10:02:00Z",
+		"category": "GitOps",
+	})
+
+	rows, err := db.ActivityBreakdown(conn, "", "")
+	if err != nil {
+		t.Fatalf("ActivityBreakdown: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 category rows, got %d", len(rows))
+	}
+	assertString(t, rows[0], "category", "Coding")
+	assertInt64(t, rows[0], "turns", 2)
+}
+
+func TestActivityBreakdown_NormalizesGeneralLabel(t *testing.T) {
+	conn := openMem(t)
+	insertMessage(t, conn, map[string]any{
+		"uuid": "g1", "session_id": "s1", "project_slug": "p1",
+		"type": "assistant", "timestamp": "2025-06-01T10:00:00Z",
+		"category": "General",
+	})
+	insertMessage(t, conn, map[string]any{
+		"uuid": "g2", "session_id": "s1", "project_slug": "p1",
+		"type": "assistant", "timestamp": "2025-06-01T10:01:00Z",
+		"category": nil,
+	})
+
+	rows, err := db.ActivityBreakdown(conn, "", "")
+	if err != nil {
+		t.Fatalf("ActivityBreakdown: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 category row, got %d", len(rows))
+	}
+	assertString(t, rows[0], "category", "General")
+	assertInt64(t, rows[0], "turns", 2)
+}
+
+func TestOneShotStats(t *testing.T) {
+	conn := openMem(t)
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m1", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Edit", "target": "foo.go", "timestamp": "2025-06-01T10:00:00Z",
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m2", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Edit", "target": "foo.go", "timestamp": "2025-06-01T10:01:00Z",
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m3", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Edit", "target": "bar.go", "timestamp": "2025-06-01T10:02:00Z",
+	})
+
+	stats, err := db.OneShotStats(conn, "", "")
+	if err != nil {
+		t.Fatalf("OneShotStats: %v", err)
+	}
+	totalEdits, _ := stats["total_edits"].(int64)
+	retryEdits, _ := stats["retry_edits"].(int64)
+	if totalEdits != 3 {
+		t.Fatalf("expected total_edits=3, got %d", totalEdits)
+	}
+	if retryEdits != 1 {
+		t.Fatalf("expected retry_edits=1, got %d", retryEdits)
+	}
+}
+
+func TestModelComparisonStats(t *testing.T) {
+	conn := openMem(t)
+	for _, tc := range []map[string]any{
+		{"uuid": "a1", "session_id": "s1", "project_slug": "p1", "type": "assistant",
+			"model": "claude-opus-4-5", "input_tokens": int64(1000), "output_tokens": int64(200),
+			"cache_read_tokens": int64(500), "timestamp": "2025-06-01T10:00:00Z"},
+		{"uuid": "a2", "session_id": "s1", "project_slug": "p1", "type": "assistant",
+			"model": "claude-opus-4-5", "input_tokens": int64(800), "output_tokens": int64(300),
+			"cache_read_tokens": int64(600), "timestamp": "2025-06-01T10:01:00Z"},
+		{"uuid": "a3", "session_id": "s2", "project_slug": "p1", "type": "assistant",
+			"model": "claude-sonnet-4-6", "input_tokens": int64(500), "output_tokens": int64(100),
+			"cache_read_tokens": int64(200), "timestamp": "2025-06-01T10:02:00Z"},
+	} {
+		insertMessage(t, conn, tc)
+	}
+
+	rows, err := db.ModelComparisonStats(conn, "", "")
+	if err != nil {
+		t.Fatalf("ModelComparisonStats: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 model rows, got %d", len(rows))
+	}
+	assertString(t, rows[0], "model", "claude-opus-4-5")
+	assertInt64(t, rows[0], "turns", 2)
 }
