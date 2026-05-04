@@ -17,12 +17,13 @@ import (
 	"strings"
 	"time"
 
+	"tokentally/internal/classify"
 	"tokentally/internal/db"
 	"tokentally/internal/skills"
 )
 
 const (
-	nanosPerSec      = 1e9 // time.Now().UnixNano() → seconds for file mtime storage
+	nanosPerSec       = 1e9 // time.Now().UnixNano() → seconds for file mtime storage
 	goshedEveryNLines = 200 // yield to other goroutines during large file scans
 )
 
@@ -337,6 +338,7 @@ type messageRow struct {
 	promptText          *string
 	promptChars         *int
 	toolCallsJSON       *string
+	category            *string
 	thinkingText        *string
 	tokensBefore        *int
 	tokensAfter         *int
@@ -369,6 +371,20 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 	allTools := make([]toolCall, 0, len(toolUses)+len(toolResults))
 	allTools = append(allTools, toolUses...)
 	allTools = append(allTools, toolResults...)
+
+	var category *string
+	if rec.Type == "assistant" {
+		toolNames := make([]string, 0, len(toolUses))
+		bashTargets := make([]string, 0, len(toolUses))
+		for _, tc := range toolUses {
+			toolNames = append(toolNames, tc.toolName)
+			if tc.toolName == "Bash" && tc.target != "" {
+				bashTargets = append(bashTargets, tc.target)
+			}
+		}
+		c := classify.Message(toolNames, bashTargets)
+		category = &c
+	}
 
 	// Extract compaction data for system records.
 	var tokensBefore, tokensAfter *int
@@ -429,6 +445,7 @@ func parseLine(rec jsonlRecord, slug string) (messageRow, []toolCall, error) {
 		promptText:          promptText,
 		promptChars:         promptChars,
 		toolCallsJSON:       buildToolCallsJSON(toolUses),
+		category:            category,
 		thinkingText:        thinkingText,
 		tokensBefore:        tokensBefore,
 		tokensAfter:         tokensAfter,
@@ -730,8 +747,8 @@ INSERT OR REPLACE INTO messages
 (uuid,parent_uuid,session_id,project_slug,cwd,git_branch,cc_version,entrypoint,
  type,is_sidechain,agent_id,timestamp,model,stop_reason,prompt_id,message_id,
  input_tokens,output_tokens,cache_read_tokens,cache_create_5m_tokens,cache_create_1h_tokens,
- prompt_text,prompt_chars,tool_calls_json,thinking_text,tokens_before,tokens_after)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	 prompt_text,prompt_chars,tool_calls_json,thinking_text,tokens_before,tokens_after,category)
+	VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 	_, err := conn.Exec(q,
 		row.uuid, row.parentUUID, row.sessionID, row.projectSlug,
@@ -741,7 +758,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 		row.inputTokens, row.outputTokens, row.cacheReadTokens,
 		row.cacheCreate5mTokens, row.cacheCreate1hTokens,
 		row.promptText, row.promptChars, row.toolCallsJSON,
-		row.thinkingText, row.tokensBefore, row.tokensAfter,
+		row.thinkingText, row.tokensBefore, row.tokensAfter, row.category,
 	)
 	if err != nil {
 		return fmt.Errorf("insert message %s: %w", row.uuid, err)

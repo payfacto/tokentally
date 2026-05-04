@@ -18,8 +18,13 @@ declare global {
           GetPrompts(limit: number, sort: string): Promise<unknown[]>
           GetProjects(since: string, until: string): Promise<unknown[]>
           GetTools(since: string, until: string): Promise<unknown[]>
+          GetBashCommands(since: string, until: string): Promise<unknown[]>
+          GetMCPServers(since: string, until: string): Promise<unknown[]>
+          GetActivities(since: string, until: string): Promise<unknown[]>
+          GetOneShotRate(since: string, until: string): Promise<unknown>
           GetDaily(since: string, until: string): Promise<unknown[]>
           GetByModel(since: string, until: string): Promise<unknown[]>
+          GetModelComparison(since: string, until: string): Promise<unknown[]>
           GetSkills(since: string, until: string): Promise<unknown[]>
           GetTips(): Promise<unknown[]>
           GetContextHealth(): Promise<unknown>
