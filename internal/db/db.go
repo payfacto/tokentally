@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"tokentally/internal/classify"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -183,6 +185,7 @@ func Open(path string) (*Pool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("db.Open %s: %w", path, err)
 		}
+		conn.SetMaxOpenConns(1)
 		if err := initSchema(conn); err != nil {
 			conn.Close()
 			return nil, err
@@ -222,6 +225,7 @@ func initSchema(conn *sql.DB) error {
 		{"messages", "thinking_text", "TEXT"},
 		{"messages", "tokens_before", "INTEGER"},
 		{"messages", "tokens_after", "INTEGER"},
+		{"messages", "category", "TEXT"},
 		{"tool_calls", "tool_use_id", "TEXT"},
 		{"tool_calls", "input_json", "TEXT"},
 		{"tool_calls", "output_text", "TEXT"},
@@ -241,7 +245,7 @@ func initSchema(conn *sql.DB) error {
 
 // targetSchemaVersion is the schema generation this binary expects. Bump it
 // whenever a new migration is appended to the migrations slice.
-const targetSchemaVersion = 3
+const targetSchemaVersion = 4
 
 // migrations are applied in order; index N produces schema version N+1.
 // To add a new one: append the function and bump targetSchemaVersion.
@@ -249,6 +253,7 @@ var migrations = []func(*sql.DB) error{
 	migrateFixUserStringContent,
 	migrateFTSBackfill,
 	migrateDropToolCallsAutoincrement,
+	migrateBackfillMessageCategory,
 }
 
 // applyMigrations runs every migration whose version is greater than the
@@ -409,6 +414,115 @@ func migrateDropToolCallsAutoincrement(conn *sql.DB) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// migrateBackfillMessageCategory (v3→v4) fills missing assistant categories
+// from existing tool_calls so activity breakdowns are not dominated by
+// legacy NULL/empty category rows.
+func migrateBackfillMessageCategory(conn *sql.DB) error {
+	rows, err := conn.Query(`
+		SELECT
+			m.uuid,
+			tc.tool_name,
+			tc.target
+		FROM messages m
+		LEFT JOIN tool_calls tc ON tc.message_uuid = m.uuid
+		WHERE m.type = 'assistant'
+		  AND (m.category IS NULL OR trim(m.category) = '')
+		ORDER BY m.uuid, tc.id`)
+	if err != nil {
+		return fmt.Errorf("query uncategorized assistant messages: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		currentUUID string
+		toolNames   []string
+		bashTargets []string
+		haveRow     bool
+		updates     []struct {
+			uuid     string
+			category string
+		}
+	)
+
+	flush := func() error {
+		if !haveRow {
+			return nil
+		}
+		cat := classify.Message(toolNames, bashTargets)
+		updates = append(updates, struct {
+			uuid     string
+			category string
+		}{uuid: currentUUID, category: cat})
+		return nil
+	}
+
+	for rows.Next() {
+		var (
+			uuid     string
+			toolName sql.NullString
+			target   sql.NullString
+		)
+		if err := rows.Scan(&uuid, &toolName, &target); err != nil {
+			return fmt.Errorf("scan uncategorized assistant row: %w", err)
+		}
+
+		if !haveRow {
+			haveRow = true
+			currentUUID = uuid
+		}
+		if uuid != currentUUID {
+			if err := flush(); err != nil {
+				return err
+			}
+			currentUUID = uuid
+			toolNames = toolNames[:0]
+			bashTargets = bashTargets[:0]
+		}
+
+		if toolName.Valid && toolName.String != "" {
+			toolNames = append(toolNames, toolName.String)
+			if toolName.String == "Bash" && target.Valid && target.String != "" {
+				bashTargets = append(bashTargets, target.String)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate uncategorized assistant rows: %w", err)
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close uncategorized assistant rows: %w", err)
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin category backfill tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.Prepare(`UPDATE messages SET category = ? WHERE uuid = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare category update: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, u := range updates {
+		if _, err := stmt.Exec(u.category, u.uuid); err != nil {
+			return fmt.Errorf("update category for %s: %w", u.uuid, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit category backfill tx: %w", err)
+	}
+	return nil
 }
 
 // firstLine returns the first non-blank line of s, used to make migration
@@ -823,6 +937,35 @@ GROUP BY tool_name ORDER BY calls DESC`
 	return scanMaps(rows)
 }
 
+// ToolCallCounts returns a map of tool_name to call count.
+func ToolCallCounts(p *Pool, since, until string) (map[string]int64, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT tool_name, COUNT(*) AS cnt
+FROM tool_calls
+WHERE tool_name != '_tool_result'` + rng + `
+GROUP BY tool_name`
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ToolCallCounts: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var name string
+		var cnt int64
+		if err := rows.Scan(&name, &cnt); err != nil {
+			return nil, err
+		}
+		result[name] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // BashCommandBreakdown returns per-command call counts for Bash tool calls.
 // The command is the first whitespace-separated token of the target field.
 func BashCommandBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
@@ -845,6 +988,92 @@ LIMIT 20`
 	}
 	defer rows.Close()
 	return scanMaps(rows)
+}
+
+// MCPBreakdown returns per-MCP-server call counts.
+// Tool names follow the pattern mcp__<server>__<tool>; offset 6 skips the
+// leading "mcp__" prefix (5 chars + 1 for 1-based substr), and the first '__'
+// after that marks the end of the server name.
+func MCPBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT server,
+			 COUNT(*) AS calls
+FROM (
+	SELECT substr(
+					 tool_name,
+					 6,  -- skip "mcp__" prefix (5 chars); substr is 1-based
+					 instr(substr(tool_name,6),'__') - 1
+				 ) AS server
+	FROM tool_calls
+	WHERE tool_name LIKE 'mcp__%__%'` + rng + `
+		AND instr(substr(tool_name,6),'__') > 1
+)
+WHERE server IS NOT NULL
+	AND server != ''
+GROUP BY server
+ORDER BY calls DESC`
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("MCPBreakdown: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// ActivityBreakdown returns turn counts and token totals per assistant category.
+func ActivityBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT COALESCE(NULLIF(trim(category),''),'General') AS category,
+       COUNT(*) AS turns,
+       COALESCE(SUM(input_tokens),0) AS input_tokens,
+       COALESCE(SUM(output_tokens),0) AS output_tokens
+FROM messages
+WHERE type = 'assistant'` + rng + `
+GROUP BY COALESCE(NULLIF(trim(category),''),'General')
+ORDER BY turns DESC`
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ActivityBreakdown: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// OneShotStats returns aggregate edit/retry counts for one-shot KPI.
+func OneShotStats(p *Pool, since, until string) (map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+WITH edits AS (
+  SELECT id, session_id, target,
+    LEAD(timestamp) OVER (
+      PARTITION BY session_id, target
+      ORDER BY timestamp
+    ) AS next_edit_ts
+  FROM tool_calls
+  WHERE tool_name IN ('Edit','Write')
+    AND target IS NOT NULL
+    AND target != ''` + rng + `
+)
+SELECT
+  COUNT(*) AS total_edits,
+  COUNT(next_edit_ts) AS retry_edits
+FROM edits`
+
+	row := p.Read.QueryRow(q, args...)
+	var totalEdits, retryEdits int64
+	if err := row.Scan(&totalEdits, &retryEdits); err != nil {
+		return nil, fmt.Errorf("OneShotStats: %w", err)
+	}
+	result := map[string]any{
+		"total_edits": totalEdits,
+		"retry_edits": retryEdits,
+	}
+	if totalEdits > 0 {
+		result["one_shot_rate"] = float64(totalEdits-retryEdits) / float64(totalEdits)
+	}
+	return result, nil
 }
 
 // DailyBreakdown returns one row per calendar day with stacked token counts.
@@ -884,6 +1113,36 @@ ORDER BY (input_tokens+output_tokens+cache_create_5m_tokens+cache_create_1h_toke
 	rows, err := p.Read.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ModelBreakdown: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// ModelComparisonStats returns per-model metrics for comparison view.
+func ModelComparisonStats(p *Pool, since, until string) ([]map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT
+	COALESCE(model,'unknown') AS model,
+	COUNT(*) AS turns,
+	COALESCE(SUM(input_tokens),0) AS input_tokens,
+	COALESCE(SUM(output_tokens),0) AS output_tokens,
+	COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens,
+	COALESCE(SUM(cache_create_5m_tokens)+SUM(cache_create_1h_tokens),0) AS cache_create_tokens,
+	CAST(COALESCE(SUM(output_tokens),0) AS REAL) / COUNT(*) AS avg_output_per_turn,
+	CASE WHEN COALESCE(SUM(input_tokens)+SUM(cache_read_tokens),0) > 0
+		THEN CAST(COALESCE(SUM(cache_read_tokens),0) AS REAL) /
+				 (COALESCE(SUM(input_tokens),0)+COALESCE(SUM(cache_read_tokens),0))
+		ELSE 0.0
+	END AS cache_hit_rate
+FROM messages
+WHERE type = 'assistant'
+	AND model IS NOT NULL` + rng + `
+GROUP BY model
+ORDER BY turns DESC`
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ModelComparisonStats: %w", err)
 	}
 	defer rows.Close()
 	return scanMaps(rows)
@@ -1302,4 +1561,3 @@ func cwdsForSlugs(p *Pool, slugs []string) (map[string][]string, error) {
 	}
 	return result, rows.Err()
 }
-

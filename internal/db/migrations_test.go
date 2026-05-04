@@ -176,3 +176,81 @@ func TestMigrateDropToolCallsAutoincrement_NoOpOnFreshDB(t *testing.T) {
 		t.Errorf("expected no-op, got %v", err)
 	}
 }
+
+func TestMigrateBackfillMessageCategory(t *testing.T) {
+	pool, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer pool.Close()
+
+	// Seed assistant rows with missing category and corresponding tool calls.
+	_, err = pool.Write.Exec(`
+		INSERT INTO messages (uuid, session_id, project_slug, type, timestamp, category)
+		VALUES
+		('a1','s1','p1','assistant','2025-06-01T10:00:00Z',NULL),
+		('a2','s1','p1','assistant','2025-06-01T10:01:00Z',NULL),
+		('a3','s1','p1','assistant','2025-06-01T10:02:00Z',NULL)`)
+	if err != nil {
+		t.Fatalf("seed messages: %v", err)
+	}
+
+	_, err = pool.Write.Exec(`
+		INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, timestamp)
+		VALUES
+		('a1','s1','p1','Edit','foo.go','2025-06-01T10:00:01Z'),
+		('a2','s1','p1','Bash','go test ./...','2025-06-01T10:01:01Z')`)
+	if err != nil {
+		t.Fatalf("seed tool calls: %v", err)
+	}
+
+	if err := migrateBackfillMessageCategory(pool.Write); err != nil {
+		t.Fatalf("migrateBackfillMessageCategory: %v", err)
+	}
+
+	rows, err := pool.Read.Query(`SELECT uuid, category FROM messages ORDER BY uuid`)
+	if err != nil {
+		t.Fatalf("query categories: %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]string{}
+	for rows.Next() {
+		var uuid string
+		var category sql.NullString
+		if err := rows.Scan(&uuid, &category); err != nil {
+			t.Fatalf("scan category row: %v", err)
+		}
+		got[uuid] = category.String
+	}
+
+	if got["a1"] != "Coding" {
+		t.Errorf("a1 category = %q, want Coding", got["a1"])
+	}
+	if got["a2"] != "Testing" {
+		t.Errorf("a2 category = %q, want Testing", got["a2"])
+	}
+	if got["a3"] != "Conversation" {
+		t.Errorf("a3 category = %q, want Conversation", got["a3"])
+	}
+
+	// Re-running is a no-op — categories already set must not be overwritten.
+	if err := migrateBackfillMessageCategory(pool.Write); err != nil {
+		t.Fatalf("second migrateBackfillMessageCategory: %v", err)
+	}
+	rows2, err := pool.Read.Query(`SELECT uuid, category FROM messages ORDER BY uuid`)
+	if err != nil {
+		t.Fatalf("query categories after re-run: %v", err)
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var uuid string
+		var category sql.NullString
+		if err := rows2.Scan(&uuid, &category); err != nil {
+			t.Fatalf("scan after re-run: %v", err)
+		}
+		if category.String != got[uuid] {
+			t.Errorf("re-run changed %q: was %q, now %q", uuid, got[uuid], category.String)
+		}
+	}
+}

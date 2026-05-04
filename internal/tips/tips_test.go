@@ -1,6 +1,7 @@
 package tips_test
 
 import (
+	"fmt"
 	"testing"
 
 	"tokentally/internal/db"
@@ -86,6 +87,108 @@ func TestAllTips_EmptyDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllTips on empty DB: %v", err)
 	}
-	// No data means no tips fire — result should be nil or empty, never an error.
-	_ = result
+	if len(result) != 0 {
+		t.Errorf("expected no tips on empty DB, got %d", len(result))
+	}
+}
+
+func insertTC(t *testing.T, conn *db.Pool, uuid, sessionID, toolName, target, ts string) {
+	t.Helper()
+	_, err := conn.Write.Exec(
+		`INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, timestamp, is_error)
+		 VALUES (?, ?, 'p1', ?, ?, ?, 0)`,
+		uuid, sessionID, toolName, target, ts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLowReadEditRatioTip(t *testing.T) {
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	for i := 0; i < 20; i++ {
+		insertTC(t, p, fmt.Sprintf("m%d", i), "s1", "Edit", "foo.go", fmt.Sprintf("2025-06-01T10:%02d:00Z", i))
+	}
+	insertTC(t, p, "mr1", "s1", "Read", "foo.go", "2025-06-01T10:21:00Z")
+
+	result, err := tips.AllTips(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tip := range result {
+		if tip["key"] == "low-read-edit-ratio" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected low-read-edit-ratio tip to appear")
+	}
+}
+
+func TestUnusedMCPTip_DoesNotFireWhenUsed(t *testing.T) {
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	insertTC(t, p, "m1", "s1", "mcp__zoho__getTicket", "", "2025-06-01T10:00:00Z")
+
+	orig := tips.ConfiguredMCPLoader
+	tips.ConfiguredMCPLoader = func() int { return 1 }
+	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig })
+
+	result, err := tips.AllTips(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tip := range result {
+		if tip["key"] == "unused-mcp-servers" {
+			t.Fatal("unused-mcp-servers should not fire when MCP servers are used")
+		}
+	}
+}
+
+func TestUnusedMCPTip_FiresWhenConfiguredButNeverCalled(t *testing.T) {
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	// Seed enough sessions to cross the threshold (unusedMCPMinSessions = 5).
+	for i := range 5 {
+		_, err = p.Write.Exec(`
+			INSERT INTO messages (uuid, session_id, project_slug, type, timestamp)
+			VALUES (?, ?, 'proj', 'assistant', '2025-01-01T10:00:00Z')`,
+			fmt.Sprintf("u%d", i), fmt.Sprintf("s%d", i),
+		)
+		if err != nil {
+			t.Fatalf("seed message: %v", err)
+		}
+	}
+
+	orig := tips.ConfiguredMCPLoader
+	tips.ConfiguredMCPLoader = func() int { return 2 }
+	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig })
+
+	result, err := tips.AllTips(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tip := range result {
+		if tip["key"] == "unused-mcp-servers" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected unused-mcp-servers tip to fire when MCP is configured but never called")
+	}
 }
