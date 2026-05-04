@@ -185,6 +185,23 @@ func TestOverviewTotals(t *testing.T) {
 	assertInt64(t, totals, "cache_create_1h_tokens", 12)
 }
 
+func assertString(t *testing.T, m map[string]any, key string, want string) {
+	t.Helper()
+	v, ok := m[key]
+	if !ok {
+		t.Errorf("key %q missing from result", key)
+		return
+	}
+	got, ok := v.(string)
+	if !ok {
+		t.Errorf("key %q has type %T, want string", key, v)
+		return
+	}
+	if got != want {
+		t.Errorf("key %q = %q, want %q", key, got, want)
+	}
+}
+
 func assertInt64(t *testing.T, m map[string]any, key string, want int64) {
 	t.Helper()
 	v, ok := m[key]
@@ -985,4 +1002,36 @@ func TestFTSBackfill_PopulatesExistingRows(t *testing.T) {
 	if len(rows) != 1 {
 		t.Errorf("post-backfill: expected 1 row, got %d", len(rows))
 	}
+}
+
+func TestBashCommandBreakdown(t *testing.T) {
+	conn := openMem(t)
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m1", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Bash", "target": "git status", "timestamp": "2025-06-01T10:00:00Z",
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m2", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Bash", "target": "git diff", "timestamp": "2025-06-01T10:01:00Z",
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m3", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Bash", "target": "npm test", "timestamp": "2025-06-01T10:02:00Z",
+	})
+	insertToolCall(t, conn, map[string]any{
+		"message_uuid": "m4", "session_id": "s1", "project_slug": "p1",
+		"tool_name": "Read", "target": "file.go", "timestamp": "2025-06-01T10:03:00Z",
+	})
+
+	rows, err := db.BashCommandBreakdown(conn, "", "")
+	if err != nil {
+		t.Fatalf("BashCommandBreakdown: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 command rows (git, npm), got %d", len(rows))
+	}
+	assertString(t, rows[0], "cmd", "git")
+	assertInt64(t, rows[0], "calls", 2)
+	assertString(t, rows[1], "cmd", "npm")
+	assertInt64(t, rows[1], "calls", 1)
 }

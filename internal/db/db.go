@@ -823,6 +823,30 @@ GROUP BY tool_name ORDER BY calls DESC`
 	return scanMaps(rows)
 }
 
+// BashCommandBreakdown returns per-command call counts for Bash tool calls.
+// The command is the first whitespace-separated token of the target field.
+func BashCommandBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT trim(substr(target, 1,
+       CASE instr(target,' ') WHEN 0 THEN length(target)
+       ELSE instr(target,' ')-1 END)) AS cmd,
+       COUNT(*) AS calls
+FROM tool_calls
+WHERE tool_name = 'Bash'
+  AND target IS NOT NULL
+  AND target != ''` + rng + `
+GROUP BY cmd
+ORDER BY calls DESC
+LIMIT 20`
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("BashCommandBreakdown: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
 // DailyBreakdown returns one row per calendar day with stacked token counts.
 func DailyBreakdown(p *Pool, since, until string) ([]map[string]any, error) {
 	rng, args := RangeClause(since, until, "timestamp")
