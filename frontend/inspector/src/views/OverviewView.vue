@@ -135,11 +135,12 @@ function renderCharts() {
       color: '#b04e20',
     })
   }
-  if (chBash.value && bashCmds.value.length) {
+  const topBash = bashCmds.value.slice(0, TOP_CHART_LIMIT)
+  if (chBash.value && topBash.length) {
     barChart(chBash.value, {
-      categories: bashCmds.value.map(b => b.cmd),
-      values: bashCmds.value.map(b => b.calls),
-      color: '#4ab0c0',
+      categories: topBash.map(b => b.cmd),
+      values: topBash.map(b => b.calls),
+      color: '#8e6bbf',
     })
   }
 }
