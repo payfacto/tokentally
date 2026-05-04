@@ -56,18 +56,22 @@ const chDailyCache    = ref<HTMLElement | null>(null)
 const chModel         = ref<HTMLElement | null>(null)
 const chProjects      = ref<HTMLElement | null>(null)
 const chTools         = ref<HTMLElement | null>(null)
+const chBash = ref<HTMLElement | null>(null)
+interface BashRow { cmd: string; calls: number }
+const bashCmds = ref<BashRow[]>([])
 
 const TOP_CHART_LIMIT = 8
 
 async function fetchAll() {
   const since = sinceIso(range.value)
-  const [t, p, s, tl, d, bm] = await Promise.all([
+  const [t, p, s, tl, d, bm, bc] = await Promise.all([
     api<Record<string, number>>(withSince('/api/overview', since)),
     api<ProjectRow[]>(withSince('/api/projects', since)),
     api<SessionRow[]>(withSince('/api/sessions?limit=10', since)),
     api<ToolRow[]>(withSince('/api/tools', since)),
     api<DailyRow[]>(withSince('/api/daily', since)),
     api<ByModelRow[]>(withSince('/api/by-model', since)),
+    api<BashRow[]>(withSince('/api/bash-commands', since)),
   ])
   totals.value   = t
   projects.value = p
@@ -75,6 +79,7 @@ async function fetchAll() {
   tools.value    = tl
   daily.value    = d
   byModel.value  = bm
+  bashCmds.value = bc
   await nextTick()
   renderCharts()
 }
@@ -130,6 +135,13 @@ function renderCharts() {
       color: '#b04e20',
     })
   }
+  if (chBash.value && bashCmds.value.length) {
+    barChart(chBash.value, {
+      categories: bashCmds.value.map(b => b.cmd),
+      values: bashCmds.value.map(b => b.calls),
+      color: '#4ab0c0',
+    })
+  }
 }
 
 async function loadContextHealth() {
@@ -165,6 +177,7 @@ onUnmounted(() => {
   disposeChart(chModel.value)
   disposeChart(chProjects.value)
   disposeChart(chTools.value)
+  disposeChart(chBash.value)
 })
 watch([rangeKey, () => store.lastScan], fetchAll)
 </script>
@@ -255,8 +268,9 @@ watch([rangeKey, () => store.lastScan], fetchAll)
       </div>
     </div>
 
-    <div class="row cols-2" style="margin-top:16px">
+    <div class="row cols-3" style="margin-top:16px">
       <div class="card"><h3>Top tools (by call count)</h3><div ref="chTools" style="height:320px"></div></div>
+      <div class="card"><h3>Shell commands (Bash)</h3><div ref="chBash" style="height:320px"></div></div>
       <div class="card">
         <h3 style="display:flex;align-items:center">
           <span>Recent sessions</span><span class="spacer"></span>

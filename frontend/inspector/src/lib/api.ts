@@ -30,6 +30,7 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/projects': (qs) => App().GetProjects(qs.since || '', qs.until || ''),
   '/api/sessions': (qs) => App().GetSessions(parseInt(qs.limit || '200', 10), qs.since || '', qs.until || ''),
   '/api/tools':    (qs) => App().GetTools(qs.since || '', qs.until || ''),
+  '/api/bash-commands': (qs) => App().GetBashCommands(qs.since || '', qs.until || ''),
   '/api/daily':    (qs) => App().GetDaily(qs.since || '', qs.until || ''),
   '/api/by-model': (qs) => App().GetByModel(qs.since || '', qs.until || ''),
   '/api/skills':   (qs) => App().GetSkills(qs.since || '', qs.until || ''),

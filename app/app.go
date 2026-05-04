@@ -345,6 +345,10 @@ func (a *App) GetTools(since, until string) ([]map[string]any, error) {
 	return db.ToolBreakdown(a.conn, since, until)
 }
 
+func (a *App) GetBashCommands(since, until string) ([]map[string]any, error) {
+	return db.BashCommandBreakdown(a.conn, since, until)
+}
+
 func (a *App) GetDaily(since, until string) ([]map[string]any, error) {
 	return db.DailyBreakdown(a.conn, since, until)
 }
