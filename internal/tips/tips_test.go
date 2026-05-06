@@ -2,7 +2,9 @@ package tips_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"tokentally/internal/db"
 	"tokentally/internal/tips"
@@ -142,7 +144,8 @@ func TestUnusedMCPTip_DoesNotFireWhenUsed(t *testing.T) {
 
 	orig := tips.ConfiguredMCPLoader
 	tips.ConfiguredMCPLoader = func() int { return 1 }
-	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig })
+	tips.ResetMCPCache()
+	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig; tips.ResetMCPCache() })
 
 	result, err := tips.AllTips(p)
 	if err != nil {
@@ -151,6 +154,72 @@ func TestUnusedMCPTip_DoesNotFireWhenUsed(t *testing.T) {
 	for _, tip := range result {
 		if tip["key"] == "unused-mcp-servers" {
 			t.Fatal("unused-mcp-servers should not fire when MCP servers are used")
+		}
+	}
+}
+
+func TestLongSessionTip_FiresAboveThreshold(t *testing.T) {
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	recent := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	for i := 0; i < 30; i++ {
+		_, err = p.Write.Exec(`
+			INSERT INTO messages (uuid, session_id, project_slug, type, timestamp)
+			VALUES (?, 'long-sess', 'proj', 'user', ?)`,
+			fmt.Sprintf("u%d", i), recent,
+		)
+		if err != nil {
+			t.Fatalf("seed user turn: %v", err)
+		}
+	}
+
+	result, err := tips.AllTips(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tip := range result {
+		if tip["key"] == "long-session" {
+			body, _ := tip["body"].(string)
+			// Body truncates session id to 8 chars.
+			if !strings.Contains(body, "long-ses") || !strings.Contains(body, "30 turns") {
+				t.Errorf("expected body to cite truncated session id and turn count, got %q", body)
+			}
+			return
+		}
+	}
+	t.Fatal("expected long-session tip to fire")
+}
+
+func TestLongSessionTip_IgnoresStaleSessions(t *testing.T) {
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	stale := time.Now().UTC().Add(-72 * time.Hour).Format("2006-01-02T15:04:05Z")
+	for i := 0; i < 50; i++ {
+		_, err = p.Write.Exec(`
+			INSERT INTO messages (uuid, session_id, project_slug, type, timestamp)
+			VALUES (?, 'old-sess', 'proj', 'user', ?)`,
+			fmt.Sprintf("u%d", i), stale,
+		)
+		if err != nil {
+			t.Fatalf("seed user turn: %v", err)
+		}
+	}
+
+	result, err := tips.AllTips(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tip := range result {
+		if tip["key"] == "long-session" {
+			t.Fatal("long-session tip should not fire for sessions outside the lookback window")
 		}
 	}
 }
@@ -176,7 +245,8 @@ func TestUnusedMCPTip_FiresWhenConfiguredButNeverCalled(t *testing.T) {
 
 	orig := tips.ConfiguredMCPLoader
 	tips.ConfiguredMCPLoader = func() int { return 2 }
-	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig })
+	tips.ResetMCPCache()
+	t.Cleanup(func() { tips.ConfiguredMCPLoader = orig; tips.ResetMCPCache() })
 
 	result, err := tips.AllTips(p)
 	if err != nil {

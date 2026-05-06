@@ -35,6 +35,7 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/activities': (qs) => App().GetActivities(qs.since || '', qs.until || ''),
   '/api/one-shot': (qs) => App().GetOneShotRate(qs.since || '', qs.until || ''),
   '/api/daily':    (qs) => App().GetDaily(qs.since || '', qs.until || ''),
+  '/api/hourly-heatmap': (qs) => App().GetHourlyHeatmap(qs.since || '', qs.until || ''),
   '/api/by-model': (qs) => App().GetByModel(qs.since || '', qs.until || ''),
   '/api/compare': (qs) => App().GetModelComparison(qs.since || '', qs.until || ''),
   '/api/skills':   (qs) => App().GetSkills(qs.since || '', qs.until || ''),
