@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, withSince, sinceIso, RANGES } from '../lib/api'
-import { stackedBarChart, donutChart, groupedBarChart, barChart, disposeChart } from '../lib/charts'
+import { stackedBarChart, donutChart, groupedBarChart, barChart, heatmapChart, disposeChart } from '../lib/charts'
 import { fmt } from '../lib/fmt'
 import { useRange } from '../composables/useRange'
 import { useAppStore } from '../stores/app'
@@ -37,6 +37,7 @@ interface MCPRow { server: string; calls: number }
 interface ActivityRow { category: string; turns: number; input_tokens: number; output_tokens: number }
 interface OneShotStats { total_edits: number; retry_edits: number; one_shot_rate?: number }
 interface BashRow { cmd: string; calls: number }
+interface HeatmapRow { dow: number; hour: number; turns: number }
 interface ContextHealth {
   line_count: number
   rule_count: number
@@ -65,13 +66,15 @@ const chProjects      = ref<HTMLElement | null>(null)
 const chTools         = ref<HTMLElement | null>(null)
 const chBash = ref<HTMLElement | null>(null)
 const chActivities = ref<HTMLElement | null>(null)
+const chHeatmap = ref<HTMLElement | null>(null)
 const bashCmds = ref<BashRow[]>([])
+const heatmap = ref<HeatmapRow[]>([])
 
 const TOP_CHART_LIMIT = 8
 
 async function fetchAll() {
   const since = sinceIso(range.value)
-  const [t, p, s, tl, d, bm, bc, mcp, act, oneShot] = await Promise.all([
+  const [t, p, s, tl, d, bm, bc, mcp, act, oneShot, hm] = await Promise.all([
     api<Record<string, number>>(withSince('/api/overview', since)),
     api<ProjectRow[]>(withSince('/api/projects', since)),
     api<SessionRow[]>(withSince('/api/sessions?limit=10', since)),
@@ -82,6 +85,7 @@ async function fetchAll() {
     api<MCPRow[]>(withSince('/api/mcp-servers', since)),
     api<ActivityRow[]>(withSince('/api/activities', since)),
     api<OneShotStats>(withSince('/api/one-shot', since)),
+    api<HeatmapRow[]>(withSince('/api/hourly-heatmap', since)),
   ])
   totals.value   = t
   projects.value = p
@@ -93,6 +97,7 @@ async function fetchAll() {
   mcpServers.value = mcp
   activities.value = act
   oneShotStats.value = oneShot
+  heatmap.value = hm
   await nextTick()
   renderCharts()
 }
@@ -164,6 +169,15 @@ function renderCharts() {
       color: '#7c5cbf',
     })
   }
+  if (chHeatmap.value && heatmap.value.length) {
+    const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'))
+    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    heatmapChart(chHeatmap.value, {
+      xCategories: HOURS,
+      yCategories: DAYS,
+      data: heatmap.value.map(r => [r.hour, r.dow, r.turns] as [number, number, number]),
+    })
+  }
 }
 
 async function loadContextHealth() {
@@ -201,6 +215,7 @@ onUnmounted(() => {
   disposeChart(chTools.value)
   disposeChart(chBash.value)
   disposeChart(chActivities.value)
+  disposeChart(chHeatmap.value)
 })
 watch([rangeKey, () => store.lastScan], fetchAll)
 </script>
@@ -342,6 +357,12 @@ watch([rangeKey, () => store.lastScan], fetchAll)
       <h3>Activity breakdown</h3>
       <p class="muted" style="margin:-4px 0 10px;font-size:12px">Classified by tool usage patterns per assistant turn.</p>
       <div ref="chActivities" style="height:260px"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>When you use Claude</h3>
+      <p class="muted" style="margin:-4px 0 10px;font-size:12px">Turns by local day-of-week and hour. Spot your peak windows — Anthropic plan limits stretch further if you spread work across off-peak hours.</p>
+      <div ref="chHeatmap" style="height:260px"></div>
     </div>
 
     <div class="card" style="margin-top:16px">

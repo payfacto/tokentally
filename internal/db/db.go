@@ -528,7 +528,7 @@ func migrateBackfillMessageCategory(conn *sql.DB) error {
 // firstLine returns the first non-blank line of s, used to make migration
 // errors point at the failing statement without dumping whole CREATE bodies.
 func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
 			return t
 		}
@@ -716,7 +716,7 @@ func SearchPrompts(p *Pool, query, types, from, to string) ([]map[string]any, er
 	}
 
 	typeSet := map[string]bool{}
-	for _, t := range strings.Split(types, ",") {
+	for t := range strings.SplitSeq(types, ",") {
 		typeSet[strings.TrimSpace(t)] = true
 	}
 	if !(typeSet["user"] && typeSet["subagent"] && typeSet["hook"]) {
@@ -1116,6 +1116,57 @@ ORDER BY (input_tokens+output_tokens+cache_create_5m_tokens+cache_create_1h_toke
 	}
 	defer rows.Close()
 	return scanMaps(rows)
+}
+
+// HourlyHeatmap returns user-turn counts bucketed by local day-of-week
+// (0=Sun..6=Sat) and hour-of-day (0..23). Empty buckets are omitted.
+func HourlyHeatmap(p *Pool, since, until string) ([]map[string]any, error) {
+	rng, args := RangeClause(since, until, "timestamp")
+	q := `
+SELECT CAST(strftime('%w', timestamp, 'localtime') AS INTEGER) AS dow,
+       CAST(strftime('%H', timestamp, 'localtime') AS INTEGER) AS hour,
+       COUNT(*) AS turns
+FROM messages
+WHERE type='user' AND timestamp IS NOT NULL` + rng + `
+GROUP BY dow, hour
+ORDER BY dow, hour`
+
+	rows, err := p.Read.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("HourlyHeatmap: %w", err)
+	}
+	defer rows.Close()
+	return scanMaps(rows)
+}
+
+// LongestRecentSession returns the session with the most user turns whose
+// last message arrived within the given lookback window. Returns an empty
+// map when no sessions qualify.
+func LongestRecentSession(p *Pool, withinHours int) (map[string]any, error) {
+	q := `
+SELECT session_id,
+       SUM(CASE WHEN type='user' THEN 1 ELSE 0 END) AS turns,
+       MAX(timestamp) AS last_active
+FROM messages
+WHERE timestamp IS NOT NULL
+GROUP BY session_id
+HAVING last_active >= datetime('now', ?)
+ORDER BY turns DESC
+LIMIT 1`
+
+	rows, err := p.Read.Query(q, fmt.Sprintf("-%d hours", withinHours))
+	if err != nil {
+		return nil, fmt.Errorf("LongestRecentSession: %w", err)
+	}
+	defer rows.Close()
+	results, err := scanMaps(rows)
+	if err != nil {
+		return nil, fmt.Errorf("LongestRecentSession scan: %w", err)
+	}
+	if len(results) == 0 {
+		return map[string]any{}, nil
+	}
+	return results[0], nil
 }
 
 // ModelComparisonStats returns per-model metrics for comparison view.

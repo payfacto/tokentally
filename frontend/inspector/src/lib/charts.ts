@@ -165,6 +165,49 @@ export function groupedBarChart(el: HTMLElement, opts: GroupedBarOptions): EChar
   return c
 }
 
+export interface HeatmapOptions {
+  xCategories: string[]
+  yCategories: string[]
+  data: [number, number, number][]
+  max?: number
+}
+
+export function heatmapChart(el: HTMLElement, opts: HeatmapOptions): EChartsInstance {
+  const c = mount(el)
+  const max = opts.max ?? Math.max(1, ...opts.data.map(d => d[2]))
+  c.setOption({
+    textStyle: BASE.textStyle,
+    grid: { left: 60, right: 16, top: 12, bottom: 60, containLabel: false },
+    tooltip: {
+      ...TOOLTIP,
+      trigger: 'item',
+      formatter: (p: { value: [number, number, number] }) =>
+        `${opts.yCategories[p.value[1]]} · ${opts.xCategories[p.value[0]]}<br/><b>${p.value[2]}</b> turns`,
+    },
+    xAxis: {
+      ...X_AXIS, type: 'category', data: opts.xCategories,
+      axisLabel: { ...X_AXIS.axisLabel, interval: 1 },
+      splitArea: { show: false },
+    },
+    yAxis: {
+      ...Y_AXIS, type: 'category', data: opts.yCategories,
+      splitLine: { show: false }, splitArea: { show: false },
+    },
+    visualMap: {
+      min: 0, max, calculable: false, orient: 'horizontal',
+      left: 'center', bottom: 4, itemWidth: 10, itemHeight: 120,
+      inRange: { color: ['#f8efe5', '#f0c9a5', '#eb733b', '#b04e20'] },
+      textStyle: { color: '#7a5c3a', fontSize: 11 },
+    },
+    series: [{
+      type: 'heatmap', data: opts.data,
+      itemStyle: { borderColor: '#fff', borderWidth: 1 },
+      emphasis: { itemStyle: { borderColor: '#1c1008', borderWidth: 1 } },
+    }],
+  })
+  return c
+}
+
 export function donutChart(el: HTMLElement, data: DonutDataItem[]): EChartsInstance {
   const c = mount(el)
   c.setOption({

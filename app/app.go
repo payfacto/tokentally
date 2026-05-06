@@ -365,6 +365,10 @@ func (a *App) GetDaily(since, until string) ([]map[string]any, error) {
 	return db.DailyBreakdown(a.conn, since, until)
 }
 
+func (a *App) GetHourlyHeatmap(since, until string) ([]map[string]any, error) {
+	return db.HourlyHeatmap(a.conn, since, until)
+}
+
 func (a *App) GetByModel(since, until string) ([]map[string]any, error) {
 	rows, err := db.ModelBreakdown(a.conn, since, until)
 	if err != nil {
@@ -848,7 +852,7 @@ func (a *App) GetRTKGain() (RTKGainResult, error) {
 
 func rtkSplitLines(s string) []string {
 	var out []string
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if l = strings.TrimRight(l, "\r"); l != "" {
 			out = append(out, l)
 		}

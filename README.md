@@ -14,13 +14,13 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 
 | Tab | What it shows |
 | --- | --- |
-| **Overview** | Aggregate token usage, cost totals, cache performance, daily trend charts, and a **Context health** panel (CLAUDE.md line/rule count and size; MCP server and hook counts from `~/.claude/settings.json`) |
+| **Overview** | Aggregate token usage, cost totals, cache performance, daily trend charts, a **When you use Claude** day-of-week × hour-of-day heatmap (local time), and a **Context health** panel (CLAUDE.md line/rule count and size; MCP server and hook counts from `~/.claude/settings.json`) |
 | **Prompts** | Most expensive prompts across all sessions — searchable, sortable, with per-prompt cost breakdown |
 | **Sessions** | Session list with turn-by-turn drilldown; hook/attachment rows shown inline |
 | **Projects** | Per-project token and cost summaries |
 | **Skills** | Breakdown of Claude Code skills invoked across sessions |
 | **Tools** | Overage & auth status checker; RTK Token Savings dashboard (see below) |
-| **Tips** | Rule-based suggestions: low cache hit rate, high output ratio, many short sessions |
+| **Tips** | Rule-based suggestions: low cache hit rate, high output ratio, many short sessions, low read-to-edit ratio, unused MCP servers, long active session (suggests `/compact`) |
 | **Calculator** | Interactive token cost estimator — enter token counts and model to see cost instantly |
 | **Settings** | Plan, pricing models, currency, exchange rates, data retention, and Windows service management |
 
