@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { fmt } from '../lib/fmt'
+import { useAppStore } from '../stores/app'
+
+const store = useAppStore()
 
 interface OverageInfo {
   model: string
@@ -36,6 +39,19 @@ interface RTKGainResult {
   error?: string
 }
 
+interface LmsgoSubRow { subcommand: string; calls: number; tokens_saved: number }
+interface LmsgoSavings {
+  total_calls: number
+  successful_calls: number
+  error_calls: number
+  input_tokens_apx: number
+  response_tokens_apx: number
+  tokens_saved_apx: number
+  files_resolved: number
+  files_missing: number
+  by_subcommand: LmsgoSubRow[]
+}
+
 const info = ref<OverageInfo | null>(null)
 const loading = ref(false)
 const fetchError = ref<string | null>(null)
@@ -43,6 +59,10 @@ const fetchError = ref<string | null>(null)
 const rtkResult = ref<RTKGainResult | null>(null)
 const rtkLoading = ref(false)
 const rtkError = ref<string | null>(null)
+
+const lmsgoResult = ref<LmsgoSavings | null>(null)
+const lmsgoLoading = ref(false)
+const lmsgoError = ref<string | null>(null)
 
 async function check() {
   loading.value = true
@@ -67,6 +87,19 @@ async function checkRTK() {
     rtkError.value = String(e)
   } finally {
     rtkLoading.value = false
+  }
+}
+
+async function checkLmsgo() {
+  lmsgoLoading.value = true
+  lmsgoError.value = null
+  lmsgoResult.value = null
+  try {
+    lmsgoResult.value = await window.go.app.App.GetLmsgoSavings('', '')
+  } catch (e) {
+    lmsgoError.value = String(e)
+  } finally {
+    lmsgoLoading.value = false
   }
 }
 
@@ -282,6 +315,99 @@ function rtkDonutDash(pct: number): string {
           <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Raw output ({{ (rtkResult.raw_output || []).length }} lines)</summary>
           <pre style="font-size:11px;overflow:auto;max-height:300px;background:#1a1a1a;color:#d4d4d4;padding:10px;border-radius:4px;margin-top:8px">{{ (rtkResult.raw_output || []).join('\n') }}</pre>
         </details>
+      </div>
+    </div>
+
+    <!-- lmsgo Section (opt-in via Settings → Beta Features) -->
+    <div v-if="store.showLmsgo" class="card rtk-card" style="margin-top:20px">
+      <div class="rtk-header">
+        <div>
+          <h2 style="margin:0 0 4px">📂 lmsgo Token Savings</h2>
+          <p class="muted" style="margin:0 0 2px;font-size:13px">
+            Delegate bulk file reads to a local LM Studio model so file contents never enter Claude's context.
+          </p>
+          <a href="https://github.com/payfacto/lmsgo" target="_blank" style="font-size:12px;color:var(--accent)">github.com/payfacto/lmsgo →</a>
+        </div>
+        <button class="primary" :disabled="lmsgoLoading" @click="checkLmsgo" style="white-space:nowrap">
+          <span v-if="lmsgoLoading" class="btn-spinner" aria-hidden="true"></span>
+          {{ lmsgoLoading ? 'Loading…' : 'Check lmsgo savings' }}
+        </button>
+      </div>
+
+      <p v-if="lmsgoError" style="color:var(--error,#c03030);margin-top:14px">{{ lmsgoError }}</p>
+
+      <p v-if="lmsgoResult && lmsgoResult.total_calls === 0" style="color:var(--warn,#b07800);margin-top:14px">
+        No lmsgo invocations recorded yet — install it from
+        <a href="https://github.com/payfacto/lmsgo" target="_blank" style="color:var(--accent)">github.com/payfacto/lmsgo</a>
+        and use it from Claude Code.
+      </p>
+
+      <div v-if="lmsgoResult && lmsgoResult.total_calls > 0" class="rtk-body">
+
+        <div class="rtk-summary-row">
+          <div class="rtk-stats">
+            <div class="rtk-stat">
+              <span class="rtk-stat-icon">✕</span>
+              <span class="rtk-stat-label">Total calls</span>
+              <span class="rtk-stat-value">{{ lmsgoResult.total_calls }}</span>
+            </div>
+            <div class="rtk-stat">
+              <span class="rtk-stat-icon">›</span>
+              <span class="rtk-stat-label">Input tokens avoided</span>
+              <span class="rtk-stat-value">~{{ fmt.compact(lmsgoResult.input_tokens_apx) }}</span>
+            </div>
+            <div class="rtk-stat">
+              <span class="rtk-stat-icon">›</span>
+              <span class="rtk-stat-label">Response tokens (returned)</span>
+              <span class="rtk-stat-value">~{{ fmt.compact(lmsgoResult.response_tokens_apx) }}</span>
+            </div>
+            <div class="rtk-stat">
+              <span class="rtk-stat-icon">›</span>
+              <span class="rtk-stat-label">Tokens saved</span>
+              <span class="rtk-stat-value" style="color:#2d8a5e">
+                ~{{ fmt.compact(lmsgoResult.tokens_saved_apx) }}
+                <span style="font-weight:400;font-size:12px;opacity:0.85">(approx)</span>
+              </span>
+            </div>
+            <div v-if="lmsgoResult.error_calls > 0" class="rtk-stat">
+              <span class="rtk-stat-icon">!</span>
+              <span class="rtk-stat-label">Errored calls</span>
+              <span class="rtk-stat-value">{{ lmsgoResult.error_calls }}</span>
+            </div>
+            <div v-if="lmsgoResult.files_missing > 0" class="rtk-stat">
+              <span class="rtk-stat-icon">?</span>
+              <span class="rtk-stat-label">Files missing on disk</span>
+              <span class="rtk-stat-value">
+                {{ lmsgoResult.files_missing }}
+                <span style="font-weight:400;font-size:11px;opacity:0.7;margin-left:6px">est. is a lower bound</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="lmsgoResult.by_subcommand.length > 0" class="rtk-cmd-section">
+          <div class="rtk-cmd-title">› By Subcommand</div>
+          <table class="rtk-cmd-table">
+            <thead>
+              <tr>
+                <th>Subcommand</th>
+                <th>Calls</th>
+                <th>Tokens saved</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in lmsgoResult.by_subcommand" :key="row.subcommand">
+                <td class="col-cmd">lmsgo {{ row.subcommand }}</td>
+                <td class="col-num">{{ row.calls }}</td>
+                <td class="col-num">~{{ fmt.compact(row.tokens_saved) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="muted" style="margin-top:14px;font-size:11px">
+          Approximation: ~4 chars/token. Saved = on-disk size of input files − size of the lmsgo response.
+        </p>
       </div>
     </div>
 

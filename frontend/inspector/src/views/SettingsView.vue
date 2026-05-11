@@ -427,6 +427,28 @@ onUnmounted(() => timers.forEach(clearTimeout))
       <p class="muted" style="font-size:11px;margin-top:8px">Removes messages from TokenTally's database only. Your <code style="font-size:11px">~/.claude/projects/</code> files are not affected and won't be re-imported.</p>
     </div>
 
+    <!-- Beta Features -->
+    <div class="card" style="margin-top:16px">
+      <h2>Beta Features</h2>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Opt-in panels that are still being validated. Off by default.</p>
+      <label class="flex" style="gap:10px;align-items:flex-start;cursor:pointer">
+        <input
+          type="checkbox"
+          :checked="store.showLmsgo"
+          style="margin-top:3px"
+          @change="(e) => store.setShowLmsgo((e.target as HTMLInputElement).checked)"
+        >
+        <span>
+          <strong style="font-size:13px">lmsgo Token Savings panel</strong>
+          <span class="muted" style="display:block;font-size:12px;margin-top:2px">
+            Adds a card to the Tools page that estimates tokens saved by delegating bulk file reads
+            to a local LM Studio model. Estimates are approximate (~4 chars/token).
+            <a href="https://github.com/payfacto/lmsgo" target="_blank" style="color:var(--accent)">github.com/payfacto/lmsgo</a>
+          </span>
+        </span>
+      </label>
+    </div>
+
     <!-- Windows Service -->
     <div class="card" style="margin-top:16px">
       <h2>Windows Service</h2>
