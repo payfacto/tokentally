@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tokentally/internal/db"
+	"tokentally/internal/lmsgo"
 	"tokentally/internal/pricing"
 	"tokentally/internal/scanner"
 	"tokentally/internal/tips"
@@ -347,6 +348,106 @@ func (a *App) GetTools(since, until string) ([]map[string]any, error) {
 
 func (a *App) GetBashCommands(since, until string) ([]map[string]any, error) {
 	return db.BashCommandBreakdown(a.conn, since, until)
+}
+
+// GetLmsgoSavings aggregates approximate token savings from `lmsgo` Bash
+// invocations recorded in tool_calls. For each call we parse the stored
+// command line, stat the input files referenced, and compare the input size
+// against the lmsgo response size already stored on the tool_calls row.
+//
+// All sizes are best-effort: source files may have been deleted or modified
+// since the call. Missing files are reported separately so the user can see
+// when the estimate is uncertain.
+func (a *App) GetLmsgoSavings(since, until string) (map[string]any, error) {
+	calls, err := db.LmsgoCalls(a.conn, since, until)
+	if err != nil {
+		return nil, err
+	}
+
+	type subAgg struct {
+		Calls       int64
+		InputBytes  int64
+		RespBytes   int64
+		TokensSaved int64
+	}
+	bySub := make(map[string]*subAgg)
+
+	var (
+		totalCalls       int64
+		errorCalls       int64
+		totalInputBytes  int64
+		totalRespBytes   int64
+		filesResolved    int64
+		filesMissing     int64
+	)
+
+	for _, call := range calls {
+		totalCalls++
+		if call.IsError {
+			errorCalls++
+			// errored calls returned no useful output; their savings are 0
+			continue
+		}
+		cmd := lmsgo.Parse(call.Target)
+		if !cmd.IsLmsgo() {
+			continue
+		}
+		est := lmsgo.EstimateInput(cmd)
+		respBytes := call.OutputChars
+		if respBytes == 0 {
+			respBytes = call.ResultTokens * lmsgo.CharsPerToken
+		}
+		saved := est.InputBytes - respBytes
+		if saved < 0 {
+			saved = 0
+		}
+
+		totalInputBytes += est.InputBytes
+		totalRespBytes += respBytes
+		filesResolved += int64(est.FilesFound)
+		filesMissing += int64(est.FilesMissing)
+
+		agg, ok := bySub[cmd.Subcommand]
+		if !ok {
+			agg = &subAgg{}
+			bySub[cmd.Subcommand] = agg
+		}
+		agg.Calls++
+		agg.InputBytes += est.InputBytes
+		agg.RespBytes += respBytes
+		agg.TokensSaved += saved / lmsgo.CharsPerToken
+	}
+
+	breakdown := make([]map[string]any, 0, len(bySub))
+	for sub, agg := range bySub {
+		breakdown = append(breakdown, map[string]any{
+			"subcommand":   sub,
+			"calls":        agg.Calls,
+			"input_bytes":  agg.InputBytes,
+			"resp_bytes":   agg.RespBytes,
+			"tokens_saved": agg.TokensSaved,
+		})
+	}
+
+	totalSaved := totalInputBytes - totalRespBytes
+	if totalSaved < 0 {
+		totalSaved = 0
+	}
+
+	return map[string]any{
+		"total_calls":      totalCalls,
+		"error_calls":      errorCalls,
+		"successful_calls": totalCalls - errorCalls,
+		"input_bytes":      totalInputBytes,
+		"response_bytes":   totalRespBytes,
+		"input_tokens_apx": totalInputBytes / lmsgo.CharsPerToken,
+		"response_tokens_apx": totalRespBytes / lmsgo.CharsPerToken,
+		"tokens_saved_apx": totalSaved / lmsgo.CharsPerToken,
+		"files_resolved":   filesResolved,
+		"files_missing":    filesMissing,
+		"by_subcommand":    breakdown,
+		"chars_per_token":  lmsgo.CharsPerToken,
+	}, nil
 }
 
 func (a *App) GetMCPServers(since, until string) ([]map[string]any, error) {
