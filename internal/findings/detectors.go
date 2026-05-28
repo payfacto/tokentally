@@ -129,3 +129,48 @@ func detectLooping(in SessionInput) []Finding {
 		Meta: map[string]any{"streak": maxStreak},
 	}}
 }
+
+// isSimpleToolTurn reports whether an assistant turn used only simple tools
+// (≤2 of them).
+func isSimpleToolTurn(m MessageRow) bool {
+	if len(m.ToolNames) == 0 || len(m.ToolNames) > 2 {
+		return false
+	}
+	for _, t := range m.ToolNames {
+		if !simpleTools[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// detectOutputWaste flags disproportionate output on simple-tool turns.
+func detectOutputWaste(in SessionInput) []Finding {
+	var sumIn, sumOut int64
+	var simpleTurns int
+	for _, m := range in.Messages {
+		if m.Type != "assistant" || !isSimpleToolTurn(m) {
+			continue
+		}
+		simpleTurns++
+		sumIn += m.InputTokens
+		sumOut += m.OutputTokens
+	}
+	if simpleTurns < outputWasteMinSimpleTurns || sumIn == 0 {
+		return make([]Finding, 0)
+	}
+	if float64(sumOut)/float64(sumIn) <= outputWasteRatio {
+		return make([]Finding, 0)
+	}
+	excess := sumOut - int64(float64(sumIn)*1.5)
+	if excess <= outputWasteMinExcess {
+		return make([]Finding, 0)
+	}
+	return []Finding{{
+		Kind: KindOutputWaste, Severity: SevMed, SessionID: in.SessionID,
+		EstTokens: excess,
+		Detail: fmt.Sprintf("Output ran %.1f× input across %d simple-tool turns — ~%s tokens of avoidable verbosity.",
+			float64(sumOut)/float64(sumIn), simpleTurns, humanTokens(excess)),
+		Meta: map[string]any{"simple_turns": simpleTurns, "sum_in": sumIn, "sum_out": sumOut},
+	}}
+}

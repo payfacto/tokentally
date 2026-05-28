@@ -82,3 +82,31 @@ func TestDetectLooping_DistinctPromptsIgnored(t *testing.T) {
 		t.Errorf("distinct prompts should not loop, got %d", len(got))
 	}
 }
+
+func TestDetectOutputWaste(t *testing.T) {
+	// 3 simple-tool turns: Σinput=300, Σoutput=2000 → ratio 6.6; excess=2000-450=1550 (<5000, no fire)
+	// Scale up so excess > 5000.
+	turn := func(in, out int64) MessageRow {
+		return MessageRow{Type: "assistant", InputTokens: in, OutputTokens: out, ToolNames: []string{"Read"}}
+	}
+	in := SessionInput{SessionID: "s1", Messages: []MessageRow{
+		turn(1000, 8000), turn(1000, 8000), turn(1000, 8000),
+	}}
+	got := detectOutputWaste(in)
+	if len(got) != 1 || got[0].Kind != KindOutputWaste {
+		t.Fatalf("want 1 output-waste finding, got %+v", got)
+	}
+	// Σout=24000, Σin=3000, excess = 24000 - 4500 = 19500
+	if got[0].EstTokens != 19500 {
+		t.Errorf("EstTokens=%d want 19500", got[0].EstTokens)
+	}
+}
+
+func TestDetectOutputWaste_ComplexTurnsIgnored(t *testing.T) {
+	turn := MessageRow{Type: "assistant", InputTokens: 1000, OutputTokens: 8000,
+		ToolNames: []string{"Bash", "Read", "Edit"}} // 3 tools → not simple
+	in := SessionInput{Messages: []MessageRow{turn, turn, turn}}
+	if got := detectOutputWaste(in); len(got) != 0 {
+		t.Errorf("complex turns should not fire, got %d", len(got))
+	}
+}
