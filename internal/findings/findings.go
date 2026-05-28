@@ -40,9 +40,10 @@ const (
 	loopingJaccardMin   = 0.75
 	loopingTokensPerMsg = 5000
 
-	outputWasteMinSimpleTurns = 3
-	outputWasteRatio          = 3.0
-	outputWasteMinExcess      = 5000
+	outputWasteMinSimpleTurns  = 3
+	outputWasteRatio           = 3.0
+	outputWasteMinExcess       = 5000
+	outputWasteExcessBaseline  = 1.5 // expected output is ~1.5× input on simple turns; excess above this is waste
 
 	overpoweredOpusShareMin   = 0.5
 	overpoweredMaxAvgOutput   = 5000
