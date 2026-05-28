@@ -30,3 +30,28 @@ func TestDetectRetryChurn_NoErrorNoFinding(t *testing.T) {
 		t.Errorf("want 0 findings (no errors), got %d", len(got))
 	}
 }
+
+func TestDetectToolCascade(t *testing.T) {
+	tc := func(e bool) ToolCallRow { return ToolCallRow{ToolName: "Bash", IsError: e} }
+	in := SessionInput{SessionID: "s1", ToolCalls: []ToolCallRow{
+		tc(true), tc(true), tc(true), tc(true), tc(false),
+	}}
+	got := detectToolCascade(in)
+	if len(got) != 1 || got[0].Kind != KindToolCascade {
+		t.Fatalf("want 1 cascade finding, got %+v", got)
+	}
+	if got[0].Severity != SevMed { // streak 4 < high threshold 6
+		t.Errorf("want med severity, got %s", got[0].Severity)
+	}
+	if got[0].EstTokens != 4*toolCascadeTokensPerErr {
+		t.Errorf("EstTokens=%d", got[0].EstTokens)
+	}
+}
+
+func TestDetectToolCascade_ShortStreakIgnored(t *testing.T) {
+	tc := func(e bool) ToolCallRow { return ToolCallRow{IsError: e} }
+	in := SessionInput{ToolCalls: []ToolCallRow{tc(true), tc(true), tc(true), tc(false)}}
+	if got := detectToolCascade(in); len(got) != 0 {
+		t.Errorf("streak of 3 should not fire, got %d", len(got))
+	}
+}
