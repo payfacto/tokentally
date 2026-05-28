@@ -55,3 +55,30 @@ func TestDetectToolCascade_ShortStreakIgnored(t *testing.T) {
 		t.Errorf("streak of 3 should not fire, got %d", len(got))
 	}
 }
+
+func TestDetectLooping(t *testing.T) {
+	msg := func(txt string) MessageRow { return MessageRow{Type: "user", PromptText: txt} }
+	in := SessionInput{SessionID: "s1", Messages: []MessageRow{
+		msg("please fix the failing scanner test now"),
+		msg("please fix the failing scanner test now please"),
+		msg("please fix the failing scanner test right now"),
+		msg("please fix the failing scanner test now again"),
+	}}
+	got := detectLooping(in)
+	if len(got) != 1 || got[0].Kind != KindLooping {
+		t.Fatalf("want 1 looping finding, got %+v", got)
+	}
+}
+
+func TestDetectLooping_DistinctPromptsIgnored(t *testing.T) {
+	msg := func(txt string) MessageRow { return MessageRow{Type: "user", PromptText: txt} }
+	in := SessionInput{Messages: []MessageRow{
+		msg("add a new database migration"),
+		msg("now write the frontend view"),
+		msg("explain the pricing tier fallback"),
+		msg("commit everything and push"),
+	}}
+	if got := detectLooping(in); len(got) != 0 {
+		t.Errorf("distinct prompts should not loop, got %d", len(got))
+	}
+}
