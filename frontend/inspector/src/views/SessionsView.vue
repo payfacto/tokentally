@@ -37,14 +37,24 @@ const sessionFindings = ref<SessionFindings | null>(null)
 
 async function fetchFindings(id: string) {
   if (!id) { sessionFindings.value = null; return }
-  sessionFindings.value = await api<SessionFindings>('/api/findings/session/' + encodeURIComponent(id))
+  try {
+    sessionFindings.value = await api<SessionFindings>('/api/findings/session/' + encodeURIComponent(id))
+  } catch (err) {
+    console.error('[findings] session fetch:', err)
+    sessionFindings.value = null
+  }
 }
 
 async function fetchBadges(list: Session[]) {
   if (!list.length) { badges.value = {}; return }
-  const ids = list.map((s) => s.session_id)
-  const result = await window.go.app.App.GetSessionBadges(ids)
-  badges.value = (result as Record<string, BadgeEntry>) ?? {}
+  try {
+    const ids = list.map((s) => s.session_id)
+    const result = await window.go.app.App.GetSessionBadges(ids)
+    badges.value = (result as Record<string, BadgeEntry>) ?? {}
+  } catch (err) {
+    console.error('[findings] badges fetch:', err)
+    badges.value = {}
+  }
 }
 
 watch(sessions, fetchBadges, { immediate: true })
