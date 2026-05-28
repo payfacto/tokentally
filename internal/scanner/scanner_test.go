@@ -268,8 +268,9 @@ func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 // (threshold ≥3 retries after errors).
 //
 // Record shapes mirror the existing scanner test fixtures:
-//   assistant → content: [{type:"tool_use", name, id, input:{file_path}}]
-//   user      → content: [{type:"tool_result", tool_use_id, is_error, content}]
+//
+//	assistant → content: [{type:"tool_use", name, id, input:{file_path}}]
+//	user      → content: [{type:"tool_result", tool_use_id, is_error, content}]
 //
 // pairToolResults (in scanner.go) updates the tool_use row's is_error column
 // from the tool_result block, so the findings loader sees Read rows with
