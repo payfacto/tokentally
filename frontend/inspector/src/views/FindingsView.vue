@@ -17,9 +17,8 @@ const kinds = ref<KindRow[]>([])
 const lowest = ref<LowRow[]>([])
 const totalSessionsCount = ref<number>(0)
 
-const totalTokens   = computed(() => kinds.value.reduce((s, k) => s + (k.est_tokens || 0), 0))
-const totalCost     = computed(() => kinds.value.reduce((s, k) => s + (k.est_cost_usd || 0), 0))
-const totalSessions = computed(() => totalSessionsCount.value)
+const totalTokens = computed(() => kinds.value.reduce((s, k) => s + (k.est_tokens || 0), 0))
+const totalCost   = computed(() => kinds.value.reduce((s, k) => s + (k.est_cost_usd || 0), 0))
 
 async function fetchAll() {
   const since = sinceIso(range.value)
@@ -53,7 +52,7 @@ watch([rangeKey, () => store.lastScan], fetchAll)
       <span class="big">~{{ fmt.tok(totalTokens) }}</span>
       <span class="sub">est. recoverable ·
         <b class="money">{{ fmt.money(totalCost, store.currency, store.exchangeRate) }}</b>
-        across {{ totalSessions }} session{{ totalSessions === 1 ? '' : 's' }}</span>
+        across {{ totalSessionsCount }} session{{ totalSessionsCount === 1 ? '' : 's' }}</span>
     </div>
 
     <div class="card" style="margin-top:16px">

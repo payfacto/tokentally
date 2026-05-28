@@ -50,7 +50,7 @@ async function fetchBadges(list: Session[]) {
   try {
     const ids = list.map((s) => s.session_id)
     const result = await window.go.app.App.GetSessionBadges(ids)
-    badges.value = (result as Record<string, BadgeEntry>) ?? {}
+    badges.value = result ?? {}
   } catch (err) {
     console.error('[findings] badges fetch:', err)
     badges.value = {}
