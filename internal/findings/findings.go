@@ -5,6 +5,7 @@ package findings
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -160,4 +161,27 @@ func shortTarget(t string) string {
 		return t
 	}
 	return ".../" + strings.Join(parts[len(parts)-2:], "/")
+}
+
+// Detect runs every detector over one session and returns the findings sorted
+// by estimated waste (desc), then kind, then detail — deterministic regardless
+// of map iteration order.
+func Detect(in SessionInput) []Finding {
+	var out []Finding
+	out = append(out, detectRetryChurn(in)...)
+	out = append(out, detectToolCascade(in)...)
+	out = append(out, detectLooping(in)...)
+	out = append(out, detectOutputWaste(in)...)
+	out = append(out, detectOverpowered(in)...)
+	out = append(out, detectWastefulThinking(in)...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EstTokens != out[j].EstTokens {
+			return out[i].EstTokens > out[j].EstTokens
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Detail < out[j].Detail
+	})
+	return out
 }
