@@ -70,3 +70,62 @@ func detectToolCascade(in SessionInput) []Finding {
 	flush()
 	return out
 }
+
+// wordSet lowercases and splits text into a set of words.
+func wordSet(s string) map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(strings.ToLower(s)) {
+		set[w] = true
+	}
+	return set
+}
+
+// jaccard returns |A∩B| / |A∪B| (0 when both empty).
+func jaccard(a, b map[string]bool) float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return 0
+	}
+	inter := 0
+	for w := range a {
+		if b[w] {
+			inter++
+		}
+	}
+	union := len(a) + len(b) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
+}
+
+// detectLooping flags runs of near-identical consecutive user prompts.
+func detectLooping(in SessionInput) []Finding {
+	var sets []map[string]bool
+	for _, m := range in.Messages {
+		if m.Type == "user" && !m.IsSidechain && strings.TrimSpace(m.PromptText) != "" {
+			sets = append(sets, wordSet(m.PromptText))
+		}
+	}
+	maxStreak, streak := 1, 1
+	for i := 1; i < len(sets); i++ {
+		if jaccard(sets[i-1], sets[i]) > loopingJaccardMin {
+			streak++
+			if streak > maxStreak {
+				maxStreak = streak
+			}
+		} else {
+			streak = 1
+		}
+	}
+	if maxStreak < loopingMinStreak {
+		return make([]Finding, 0)
+	}
+	est := int64(maxStreak) * loopingTokensPerMsg
+	return []Finding{{
+		Kind: KindLooping, Severity: SevHigh, SessionID: in.SessionID,
+		EstTokens: est,
+		Detail: fmt.Sprintf("%d near-identical prompts in a row — ~%s tokens re-spent on the same ask.",
+			maxStreak, humanTokens(est)),
+		Meta: map[string]any{"streak": maxStreak},
+	}}
+}
