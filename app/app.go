@@ -1017,3 +1017,58 @@ func stringVal(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+// blendedRatePerToken returns the average USD cost per billable token across
+// the range, used to translate estimated wasted tokens into dollars for the
+// aggregated Findings view (which spans multiple models). Returns 0 when there
+// is no costed usage.
+func (a *App) blendedRatePerToken(since, until string) float64 {
+	models, err := db.ModelBreakdown(a.conn, since, until)
+	if err != nil {
+		return 0
+	}
+	var totalCost float64
+	var totalTokens int64
+	for _, m := range models {
+		model, _ := m["model"].(string)
+		if c := pricing.CostFor(model, usageFromRow(m), a.getPricing(), a.getPlan()); c != nil {
+			totalCost += *c
+		}
+		totalTokens += asInt64(m["input_tokens"]) + asInt64(m["output_tokens"]) +
+			asInt64(m["cache_create_5m_tokens"]) + asInt64(m["cache_create_1h_tokens"])
+	}
+	if totalTokens == 0 {
+		return 0
+	}
+	return totalCost / float64(totalTokens)
+}
+
+// GetFindingsSummary returns findings rolled up by kind, each with an estimated
+// dollar cost derived from the range's blended per-token rate.
+func (a *App) GetFindingsSummary(since, until string) ([]map[string]any, error) {
+	rows, err := db.FindingsSummary(a.conn, since, until)
+	if err != nil {
+		return nil, err
+	}
+	rate := a.blendedRatePerToken(since, until)
+	for _, r := range rows {
+		est := asInt64(r["est_tokens"])
+		r["est_cost_usd"] = float64(est) * rate
+	}
+	return rows, nil
+}
+
+// GetLowestScoringSessions returns the worst-scoring sessions in the range.
+func (a *App) GetLowestScoringSessions(since, until string) ([]map[string]any, error) {
+	return db.LowestScoringSessions(a.conn, since, until, 10)
+}
+
+// GetSessionFindings returns one session's findings plus its score/grade.
+func (a *App) GetSessionFindings(sessionID string) (map[string]any, error) {
+	return db.SessionFindings(a.conn, sessionID)
+}
+
+// GetSessionBadges returns finding-badge data for a set of session ids.
+func (a *App) GetSessionBadges(sessionIDs []string) (map[string]any, error) {
+	return db.FindingsBadges(a.conn, sessionIDs)
+}
