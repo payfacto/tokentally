@@ -60,6 +60,8 @@ const (
 )
 
 // simpleTools are low-cost tools; turns using only these are "simple".
+// Write is intentionally included; the output-waste detector treats
+// Read/Glob/Grep/Edit/Write as low-cost "simple" turns.
 var simpleTools = map[string]bool{
 	"Read": true, "Glob": true, "Grep": true, "Edit": true, "Write": true,
 }
@@ -137,13 +139,17 @@ func humanTokens(n int64) string {
 	case n >= 1_000_000:
 		return fmt.Sprintf("%.1fM", float64(n)/1e6)
 	case n >= 1000:
-		return fmt.Sprintf("%dK", n/1000)
+		if n%1000 == 0 {
+			return fmt.Sprintf("%dK", n/1000)
+		}
+		return fmt.Sprintf("%.1fK", float64(n)/1000)
 	default:
 		return fmt.Sprintf("%d", n)
 	}
 }
 
 // shortTarget trims a path to its last two segments for readable details.
+// It assumes POSIX-style forward-slash targets, which Claude Code transcripts use.
 func shortTarget(t string) string {
 	if t == "" {
 		return "(no target)"
