@@ -163,17 +163,25 @@ func shortTarget(t string) string {
 	return ".../" + strings.Join(parts[len(parts)-2:], "/")
 }
 
+// allDetectors is the registry of every detector function. Add new detectors
+// here to keep Detect open for extension without modification (OCP).
+var allDetectors = []func(SessionInput) []Finding{
+	detectRetryChurn,
+	detectToolCascade,
+	detectLooping,
+	detectOutputWaste,
+	detectOverpowered,
+	detectWastefulThinking,
+}
+
 // Detect runs every detector over one session and returns the findings sorted
 // by estimated waste (desc), then kind, then detail — deterministic regardless
 // of map iteration order.
 func Detect(in SessionInput) []Finding {
 	var out []Finding
-	out = append(out, detectRetryChurn(in)...)
-	out = append(out, detectToolCascade(in)...)
-	out = append(out, detectLooping(in)...)
-	out = append(out, detectOutputWaste(in)...)
-	out = append(out, detectOverpowered(in)...)
-	out = append(out, detectWastefulThinking(in)...)
+	for _, d := range allDetectors {
+		out = append(out, d(in)...)
+	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].EstTokens != out[j].EstTokens {
 			return out[i].EstTokens > out[j].EstTokens
