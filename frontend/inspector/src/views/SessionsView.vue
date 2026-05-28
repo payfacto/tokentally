@@ -35,7 +35,7 @@ async function fetchBadges(list: Session[]) {
   badges.value = (result as Record<string, BadgeEntry>) ?? {}
 }
 
-watch(sessions, fetchBadges)
+watch(sessions, fetchBadges, { immediate: true })
 
 function pick(session: Session) {
   router.push('/sessions/' + encodeURIComponent(session.session_id))
