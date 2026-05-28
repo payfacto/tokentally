@@ -42,3 +42,33 @@ func TestGradeBands(t *testing.T) {
 		}
 	}
 }
+
+func TestScore_ErrorRatePenalty(t *testing.T) {
+	// 4 of 10 tool calls error → rate 0.40 (>0.30) → -10.
+	tcs := make([]ToolCallRow, 0, 10)
+	for i := 0; i < 10; i++ {
+		tcs = append(tcs, ToolCallRow{ToolName: "Bash", IsError: i < 4})
+	}
+	in := SessionInput{ContextWindow: 200000,
+		Messages:  []MessageRow{{Type: "assistant", InputTokens: 10, OutputTokens: 10}},
+		ToolCalls: tcs}
+	score, _ := Score(in, nil)
+	if score != 90 {
+		t.Errorf("want 90 (error-rate -10), got %d", score)
+	}
+}
+
+func TestScore_DuplicateReadPenalty(t *testing.T) {
+	// Same file Read 3× → -5 (once).
+	in := SessionInput{ContextWindow: 200000,
+		Messages: []MessageRow{{Type: "assistant", InputTokens: 10, OutputTokens: 10}},
+		ToolCalls: []ToolCallRow{
+			{ToolName: "Read", Target: "a.go"},
+			{ToolName: "Read", Target: "a.go"},
+			{ToolName: "Read", Target: "a.go"},
+		}}
+	score, _ := Score(in, nil)
+	if score != 95 {
+		t.Errorf("want 95 (dup-read -5), got %d", score)
+	}
+}
