@@ -125,6 +125,29 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages
   WHEN old.prompt_text IS NOT NULL AND old.prompt_text != '' BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, prompt_text) VALUES('delete', old.rowid, old.prompt_text);
 END;
+
+CREATE TABLE IF NOT EXISTS findings (
+  session_id   TEXT    NOT NULL,
+  project_slug TEXT    NOT NULL,
+  kind         TEXT    NOT NULL,
+  severity     TEXT    NOT NULL,
+  est_tokens   INTEGER NOT NULL DEFAULT 0,
+  detail       TEXT,
+  meta_json    TEXT,
+  timestamp    TEXT    NOT NULL,
+  PRIMARY KEY (session_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_findings_kind ON findings(kind);
+CREATE INDEX IF NOT EXISTS idx_findings_ts   ON findings(timestamp);
+
+CREATE TABLE IF NOT EXISTS session_scores (
+  session_id   TEXT    PRIMARY KEY,
+  project_slug TEXT    NOT NULL,
+  score        INTEGER NOT NULL,
+  grade        TEXT    NOT NULL,
+  timestamp    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scores_ts ON session_scores(timestamp);
 `
 
 const nanosPerSec = 1e9 // UnixNano → seconds for mtime/scanned_at storage
@@ -245,7 +268,7 @@ func initSchema(conn *sql.DB) error {
 
 // targetSchemaVersion is the schema generation this binary expects. Bump it
 // whenever a new migration is appended to the migrations slice.
-const targetSchemaVersion = 4
+const targetSchemaVersion = 5
 
 // migrations are applied in order; index N produces schema version N+1.
 // To add a new one: append the function and bump targetSchemaVersion.
@@ -254,6 +277,7 @@ var migrations = []func(*sql.DB) error{
 	migrateFTSBackfill,
 	migrateDropToolCallsAutoincrement,
 	migrateBackfillMessageCategory,
+	migrateAddFindingsTables, // v4→v5
 }
 
 // applyMigrations runs every migration whose version is greater than the
@@ -521,6 +545,32 @@ func migrateBackfillMessageCategory(conn *sql.DB) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit category backfill tx: %w", err)
+	}
+	return nil
+}
+
+// migrateAddFindingsTables (v4→v5) creates the findings + session_scores
+// tables on existing databases. The CREATE TABLE IF NOT EXISTS statements in
+// the static schema already cover fresh DBs; this re-runs them so upgraded
+// DBs get the tables too. Idempotent.
+func migrateAddFindingsTables(conn *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS findings (
+		  session_id   TEXT NOT NULL, project_slug TEXT NOT NULL,
+		  kind TEXT NOT NULL, severity TEXT NOT NULL,
+		  est_tokens INTEGER NOT NULL DEFAULT 0, detail TEXT, meta_json TEXT,
+		  timestamp TEXT NOT NULL, PRIMARY KEY (session_id, kind))`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_kind ON findings(kind)`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_ts ON findings(timestamp)`,
+		`CREATE TABLE IF NOT EXISTS session_scores (
+		  session_id TEXT PRIMARY KEY, project_slug TEXT NOT NULL,
+		  score INTEGER NOT NULL, grade TEXT NOT NULL, timestamp TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_scores_ts ON session_scores(timestamp)`,
+	}
+	for _, s := range stmts {
+		if _, err := conn.Exec(s); err != nil {
+			return fmt.Errorf("add findings tables: %w", err)
+		}
 	}
 	return nil
 }
