@@ -37,3 +37,36 @@ func detectRetryChurn(in SessionInput) []Finding {
 	sort.Slice(out, func(i, j int) bool { return out[i].Detail < out[j].Detail })
 	return out
 }
+
+// detectToolCascade flags runs of consecutive erroring tool calls.
+func detectToolCascade(in SessionInput) []Finding {
+	out := make([]Finding, 0)
+	streak := 0
+	flush := func() {
+		if streak < toolCascadeMinStreak {
+			return
+		}
+		sev := SevMed
+		if streak >= toolCascadeHighStreak {
+			sev = SevHigh
+		}
+		est := int64(streak) * toolCascadeTokensPerErr
+		out = append(out, Finding{
+			Kind: KindToolCascade, Severity: sev, SessionID: in.SessionID,
+			EstTokens: est,
+			Detail: fmt.Sprintf("%d consecutive tool errors — ~%s tokens burned recovering.",
+				streak, humanTokens(est)),
+			Meta: map[string]any{"streak": streak},
+		})
+	}
+	for _, tcr := range in.ToolCalls {
+		if tcr.IsError {
+			streak++
+			continue
+		}
+		flush()
+		streak = 0
+	}
+	flush()
+	return out
+}
