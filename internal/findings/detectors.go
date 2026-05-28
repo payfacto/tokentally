@@ -174,3 +174,51 @@ func detectOutputWaste(in SessionInput) []Finding {
 		Meta: map[string]any{"simple_turns": simpleTurns, "sum_in": sumIn, "sum_out": sumOut},
 	}}
 }
+
+// detectOverpowered flags Opus dominating a session of simple, low-output work.
+func detectOverpowered(in SessionInput) []Finding {
+	var opusBillable, totalBillable, totalOutput int64
+	var assistantTurns int
+	for _, m := range in.Messages {
+		if m.Type != "assistant" {
+			continue
+		}
+		assistantTurns++
+		billable := m.InputTokens + m.OutputTokens + m.CacheCreate
+		totalBillable += billable
+		totalOutput += m.OutputTokens
+		if tierOf(m.Model) == "opus" {
+			opusBillable += billable
+		}
+	}
+	if totalBillable == 0 || assistantTurns == 0 {
+		return make([]Finding, 0)
+	}
+	opusShare := float64(opusBillable) / float64(totalBillable)
+	avgOutput := float64(totalOutput) / float64(assistantTurns)
+
+	var simpleCalls int
+	for _, tc := range in.ToolCalls {
+		if simpleTools[tc.ToolName] {
+			simpleCalls++
+		}
+	}
+	if len(in.ToolCalls) == 0 {
+		return make([]Finding, 0)
+	}
+	simpleShare := float64(simpleCalls) / float64(len(in.ToolCalls))
+
+	if opusShare < overpoweredOpusShareMin ||
+		avgOutput > overpoweredMaxAvgOutput ||
+		simpleShare < overpoweredSimpleShareMin {
+		return make([]Finding, 0)
+	}
+	est := int64(float64(opusBillable) * overpoweredSavingsFactor)
+	return []Finding{{
+		Kind: KindOverpoweredModel, Severity: SevMed, SessionID: in.SessionID,
+		EstTokens: est,
+		Detail: fmt.Sprintf("Opus drove %.0f%% of simple, low-output work — ~%s tokens' worth is avoidable on Sonnet.",
+			opusShare*100, humanTokens(est)),
+		Meta: map[string]any{"opus_share": opusShare, "avg_output": avgOutput, "simple_share": simpleShare},
+	}}
+}
