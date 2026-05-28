@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"tokentally/internal/db"
@@ -277,10 +278,7 @@ func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 // is_error=1.
 func writeRetryChurnFixture(t *testing.T, dir, filename string) {
 	t.Helper()
-	stem := filename
-	if len(stem) > 6 && stem[len(stem)-6:] == ".jsonl" {
-		stem = stem[:len(stem)-6]
-	}
+	stem := strings.TrimSuffix(filename, ".jsonl")
 
 	ts := func(i int) string {
 		return "2025-01-01T10:00:0" + string(rune('0'+i)) + ".000Z"
