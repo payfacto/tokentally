@@ -8,6 +8,7 @@ import type { Chunk, Session } from '../lib/types'
 import { generateSessionHTML } from '../lib/export'
 import type { SessionMeta } from '../lib/export'
 import { fmt } from '../lib/fmt'
+import { api } from '../lib/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,6 +29,29 @@ const { data: chunks, visibleCount, isLoading, error, cancelReveal } = useSessio
 interface BadgeEntry { grade: string; score: number; findings: number; sev_rank: number }
 const badges = ref<Record<string, BadgeEntry>>({})
 
+interface FindingRow { kind: string; severity: number; est_tokens: number; detail: string }
+interface SessionFindings { score: number | null; grade: string | null; findings: FindingRow[] }
+
+const KIND_LABELS: Record<string, string> = {
+  'retry-churn':       'Retry churn',
+  'tool-cascade':      'Tool cascade',
+  'looping':           'Looping',
+  'output-waste':      'Output waste',
+  'overpowered-model': 'Overpowered model',
+  'wasteful-thinking': 'Wasteful thinking',
+}
+
+function sevClass(rank: number) {
+  return rank >= 3 ? 'sev-high' : rank === 2 ? 'sev-med' : 'sev-low'
+}
+
+const sessionFindings = ref<SessionFindings | null>(null)
+
+async function fetchFindings(id: string) {
+  if (!id) { sessionFindings.value = null; return }
+  sessionFindings.value = await api<SessionFindings>('/api/findings/session/' + encodeURIComponent(id))
+}
+
 async function fetchBadges(list: Session[]) {
   if (!list.length) { badges.value = {}; return }
   const ids = list.map((s) => s.session_id)
@@ -36,6 +60,7 @@ async function fetchBadges(list: Session[]) {
 }
 
 watch(sessions, fetchBadges, { immediate: true })
+watch(selectedId, fetchFindings, { immediate: true })
 
 function pick(session: Session) {
   router.push('/sessions/' + encodeURIComponent(session.session_id))
@@ -153,6 +178,31 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
         </div>
         <div v-else class="inspector-scroll">
           <SessionInspector :chunks="chunks.slice(0, visibleCount)" />
+          <div
+            v-if="sessionFindings && (sessionFindings.grade || sessionFindings.findings.length)"
+            class="findings-section"
+          >
+            <div class="findings-header">
+              <span class="findings-title">Findings</span>
+              <span
+                v-if="sessionFindings.grade"
+                class="grade-chip"
+                :class="`grade-${sessionFindings.grade}`"
+              >{{ sessionFindings.grade }}{{ sessionFindings.score != null ? ' · ' + sessionFindings.score : '' }}</span>
+              <span v-else class="muted" style="font-size:11px">No quality score yet</span>
+            </div>
+            <div v-if="!sessionFindings.findings.length" class="muted" style="font-size:12px;padding:6px 0">
+              No findings for this session.
+            </div>
+            <div v-for="(f, i) in sessionFindings.findings" :key="i" class="finding-row">
+              <div class="finding-bar" :class="sevClass(f.severity)"></div>
+              <div class="finding-body">
+                <span class="finding-kind">{{ KIND_LABELS[f.kind] ?? f.kind }}</span>
+                <span class="finding-detail muted">{{ f.detail }}</span>
+              </div>
+              <span class="finding-tok muted mono">~{{ fmt.tok(f.est_tokens) }}</span>
+            </div>
+          </div>
         </div>
       </template>
     </div>
@@ -192,4 +242,18 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 .project-filter-label { color: var(--accent, #e8956d); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .project-filter-clear { color: var(--muted); text-decoration: none; flex-shrink: 0; }
 .project-filter-clear:hover { color: var(--text); }
+.findings-section { margin-top: 20px; padding: 12px 0 4px; border-top: 1px solid var(--border); }
+.findings-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.findings-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.grade-chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.finding-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.finding-row:last-child { border-bottom: none; }
+.finding-bar { width: 3px; align-self: stretch; min-height: 28px; border-radius: 2px; flex-shrink: 0; }
+.sev-high { background: #e5534b; }
+.sev-med  { background: #e0a23a; }
+.sev-low  { background: #4a90d9; }
+.finding-body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.finding-kind { font-size: 12px; font-weight: 600; }
+.finding-detail { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.finding-tok { font-size: 11px; flex-shrink: 0; }
 </style>
