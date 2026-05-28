@@ -552,7 +552,8 @@ func migrateBackfillMessageCategory(conn *sql.DB) error {
 // migrateAddFindingsTables (v4→v5) creates the findings + session_scores
 // tables on existing databases. The CREATE TABLE IF NOT EXISTS statements in
 // the static schema already cover fresh DBs; this re-runs them so upgraded
-// DBs get the tables too. Idempotent.
+// DBs get the tables too. Idempotent. Keep these table definitions in sync
+// with the matching CREATE TABLE statements in the schema const above.
 func migrateAddFindingsTables(conn *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS findings (
