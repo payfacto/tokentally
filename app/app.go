@@ -1073,3 +1073,9 @@ func (a *App) GetSessionFindings(sessionID string) (map[string]any, error) {
 func (a *App) GetSessionBadges(sessionIDs []string) (map[string]any, error) {
 	return db.FindingsBadges(a.conn, sessionIDs)
 }
+
+// GetFindingsTotalSessions returns the distinct count of sessions with any
+// finding in the range — the honest "across N" figure for the Findings banner.
+func (a *App) GetFindingsTotalSessions(since, until string) (int64, error) {
+	return db.FindingsDistinctSessionCount(a.conn, since, until)
+}

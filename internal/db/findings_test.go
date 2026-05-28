@@ -75,6 +75,32 @@ func TestRecomputeFindings_ReplacesPrior(t *testing.T) {
 	}
 }
 
+func TestFindingsDistinctSessionCount(t *testing.T) {
+	p, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	seedRetrySession(t, p, "sessA")
+	seedRetrySession(t, p, "sessB")
+
+	if err := RecomputeFindings(p, "sessA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecomputeFindings(p, "sessB"); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := FindingsDistinctSessionCount(p, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("want 2 distinct sessions, got %d", n)
+	}
+}
+
 func TestFindingsReadHelpers(t *testing.T) {
 	p, _ := Open(":memory:")
 	defer p.Close()
