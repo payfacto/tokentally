@@ -39,6 +39,8 @@ const apiMap: Record<string, (qs: QS) => Promise<unknown>> = {
   '/api/by-model': (qs) => App().GetByModel(qs.since || '', qs.until || ''),
   '/api/compare': (qs) => App().GetModelComparison(qs.since || '', qs.until || ''),
   '/api/skills':   (qs) => App().GetSkills(qs.since || '', qs.until || ''),
+  '/api/findings':         (qs) => App().GetFindingsSummary(qs.since || '', qs.until || ''),
+  '/api/findings/lowest':  (qs) => App().GetLowestScoringSessions(qs.since || '', qs.until || ''),
   '/api/tips':          (_) => App().GetTips(),
   '/api/context-health': (_) => App().GetContextHealth(),
   '/api/plan':     (_)  => App().GetPlan(),
@@ -52,6 +54,11 @@ export async function api<T = unknown>(path: string, opts?: { method: string; bo
   if (base.startsWith('/api/sessions/')) {
     const sid = base.split('/').pop() || ''
     return (await App().GetSessionChunks(decodeURIComponent(sid))) as unknown as T
+  }
+
+  if (base.startsWith('/api/findings/session/')) {
+    const sid = base.split('/').pop() || ''
+    return (await App().GetSessionFindings(decodeURIComponent(sid))) as unknown as T
   }
 
   if (opts?.method === 'POST') {

@@ -5,6 +5,7 @@ import SessionsView    from '../views/SessionsView.vue'
 import ProjectsView    from '../views/ProjectsView.vue'
 import SkillsView      from '../views/SkillsView.vue'
 import TipsView        from '../views/TipsView.vue'
+import FindingsView    from '../views/FindingsView.vue'
 import SettingsView    from '../views/SettingsView.vue'
 import CalculatorView  from '../views/CalculatorView.vue'
 import OverageView     from '../views/OverageView.vue'
@@ -21,6 +22,7 @@ export default createRouter({
     { path: '/projects',       component: ProjectsView },
     { path: '/skills',         component: SkillsView },
     { path: '/tips',           component: TipsView },
+    { path: '/findings',       component: FindingsView },
     { path: '/tools',          component: OverageView },
     { path: '/compare',        component: CompareView },
     { path: '/settings',       component: SettingsView },

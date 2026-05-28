@@ -56,6 +56,11 @@ declare global {
           GetRetentionDays(): Promise<number>
           SetRetentionDays(days: number): Promise<void>
           PurgeOlderThan(days: number): Promise<number>
+          // Findings
+          GetFindingsSummary(since: string, until: string): Promise<unknown[]>
+          GetLowestScoringSessions(since: string, until: string): Promise<unknown[]>
+          GetSessionFindings(sessionId: string): Promise<unknown>
+          GetSessionBadges(sessionIds: string[]): Promise<unknown>
           // Settings — service
           GetServiceStatus(): Promise<ServiceStatus>
           InstallService(): Promise<void>
