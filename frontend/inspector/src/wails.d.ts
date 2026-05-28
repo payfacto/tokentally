@@ -61,7 +61,7 @@ declare global {
           GetLowestScoringSessions(since: string, until: string): Promise<unknown[]>
           GetFindingsTotalSessions(since: string, until: string): Promise<number>
           GetSessionFindings(sessionId: string): Promise<unknown>
-          GetSessionBadges(sessionIds: string[]): Promise<unknown>
+          GetSessionBadges(sessionIds: string[]): Promise<Record<string, { grade: string; score: number; findings: number; sev_rank: number }>>
           // Settings — service
           GetServiceStatus(): Promise<ServiceStatus>
           InstallService(): Promise<void>
