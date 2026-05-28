@@ -200,6 +200,8 @@ func ScanDir(p *db.Pool, projectsDir string) (ScanResult, error) {
 
 // sessionIDFromPath derives the session id from a transcript filename:
 // ~/.claude/projects/<slug>/<session>.jsonl → "<session>".
+// Invariant: the JSONL filename stem equals the session_id field in every
+// record within that file — the scanner relies on this to key recomputation.
 func sessionIDFromPath(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), ".jsonl")
 }
