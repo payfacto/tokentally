@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -137,6 +138,7 @@ type fileState struct {
 // queue at the Go pool layer rather than failing with "database is locked".
 func ScanDir(p *db.Pool, projectsDir string) (ScanResult, error) {
 	var result ScanResult
+	changed := map[string]bool{} // session ids touched this tick
 
 	err := filepath.WalkDir(projectsDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -179,12 +181,27 @@ func ScanDir(p *db.Pool, projectsDir string) (ScanResult, error) {
 		result.Files++
 		result.Messages += sub.messages
 		result.Tools += sub.tools
+		changed[sessionIDFromPath(path)] = true
 		return nil
 	})
 	if err != nil {
 		return result, fmt.Errorf("ScanDir walk: %w", err)
 	}
+
+	// Recompute derived findings for every session whose file changed. Best
+	// effort: a failure here must not fail the scan or lose file-state progress.
+	for sid := range changed {
+		if err := db.RecomputeFindings(p, sid); err != nil {
+			log.Printf("findings: recompute %s: %v", sid, err)
+		}
+	}
 	return result, nil
+}
+
+// sessionIDFromPath derives the session id from a transcript filename:
+// ~/.claude/projects/<slug>/<session>.jsonl → "<session>".
+func sessionIDFromPath(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), ".jsonl")
 }
 
 // scanFileResult holds internal scan metrics for one file.

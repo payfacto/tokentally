@@ -260,3 +260,82 @@ func TestScanDir_StreamingSnapshotDedup(t *testing.T) {
 		t.Errorf("dedup: expected surviving uuid=%q, got %q", "new-uuid", uuid)
 	}
 }
+
+// writeRetryChurnFixture writes a JSONL session file to dir/<filename>.
+// The session id is the filename stem (e.g. "deadbeef" for "deadbeef.jsonl").
+// It emits 4 Read-on-the-same-target rounds: 3 with is_error:true in the
+// tool_result and 1 without — enough to trigger the retry-churn detector
+// (threshold ≥3 retries after errors).
+//
+// Record shapes mirror the existing scanner test fixtures:
+//   assistant → content: [{type:"tool_use", name, id, input:{file_path}}]
+//   user      → content: [{type:"tool_result", tool_use_id, is_error, content}]
+//
+// pairToolResults (in scanner.go) updates the tool_use row's is_error column
+// from the tool_result block, so the findings loader sees Read rows with
+// is_error=1.
+func writeRetryChurnFixture(t *testing.T, dir, filename string) {
+	t.Helper()
+	stem := filename
+	if len(stem) > 6 && stem[len(stem)-6:] == ".jsonl" {
+		stem = stem[:len(stem)-6]
+	}
+
+	ts := func(i int) string {
+		return "2025-01-01T10:00:0" + string(rune('0'+i)) + ".000Z"
+	}
+
+	var lines []string
+	// Opening user prompt.
+	lines = append(lines, `{"uuid":"`+stem+`-u0","sessionId":"`+stem+`","type":"user","timestamp":"2025-01-01T10:00:00.000Z","message":{"content":[{"type":"text","text":"read a file"}]}}`)
+
+	// 4 rounds: 3 errors then 1 success.
+	for i := 0; i < 4; i++ {
+		tuID := "tu-" + stem + "-" + string(rune('1'+i))
+		aUUID := stem + "-a" + string(rune('1'+i))
+		uUUID := stem + "-r" + string(rune('1'+i))
+		aTs := ts(i*2 + 1)
+		uTs := ts(i*2 + 2)
+		isError := "true"
+		if i == 3 {
+			isError = "false"
+		}
+		lines = append(lines,
+			`{"uuid":"`+aUUID+`","sessionId":"`+stem+`","type":"assistant","timestamp":"`+aTs+`","message":{"id":"mid-`+stem+`-`+string(rune('1'+i))+`","model":"claude-sonnet-4-6","stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","id":"`+tuID+`","input":{"file_path":"target.go"}}],"usage":{"input_tokens":100,"output_tokens":10}}}`,
+			`{"uuid":"`+uUUID+`","sessionId":"`+stem+`","type":"user","timestamp":"`+uTs+`","message":{"content":[{"type":"tool_result","tool_use_id":"`+tuID+`","is_error":`+isError+`,"content":"error reading file"}]}}`,
+		)
+	}
+
+	content := ""
+	for _, l := range lines {
+		content += l + "\n"
+	}
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScanDirComputesFindings(t *testing.T) {
+	dir := t.TempDir()
+	p, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	writeRetryChurnFixture(t, dir, "deadbeef.jsonl")
+
+	if _, err := scanner.ScanDir(p, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var n int
+	p.Read.QueryRow(`SELECT COUNT(*) FROM findings WHERE session_id='deadbeef'`).Scan(&n)
+	if n == 0 {
+		t.Error("expected ScanDir to populate findings for the session")
+	}
+}
