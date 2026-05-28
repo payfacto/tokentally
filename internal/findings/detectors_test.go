@@ -110,3 +110,29 @@ func TestDetectOutputWaste_ComplexTurnsIgnored(t *testing.T) {
 		t.Errorf("complex turns should not fire, got %d", len(got))
 	}
 }
+
+func TestDetectOverpowered(t *testing.T) {
+	// All Opus, low output, all simple tools → fires.
+	turn := MessageRow{Type: "assistant", Model: "claude-opus-4-7",
+		InputTokens: 1000, OutputTokens: 1000, ToolNames: []string{"Read"}}
+	in := SessionInput{SessionID: "s1", Messages: []MessageRow{turn, turn, turn},
+		ToolCalls: []ToolCallRow{{ToolName: "Read"}, {ToolName: "Read"}, {ToolName: "Read"}}}
+	got := detectOverpowered(in)
+	if len(got) != 1 || got[0].Kind != KindOverpoweredModel {
+		t.Fatalf("want 1 overpowered finding, got %+v", got)
+	}
+	// opus billable = 3*(1000+1000) = 6000; est = 6000*0.6 = 3600
+	if got[0].EstTokens != 3600 {
+		t.Errorf("EstTokens=%d want 3600", got[0].EstTokens)
+	}
+}
+
+func TestDetectOverpowered_SonnetIgnored(t *testing.T) {
+	turn := MessageRow{Type: "assistant", Model: "claude-sonnet-4-6",
+		InputTokens: 1000, OutputTokens: 1000, ToolNames: []string{"Read"}}
+	in := SessionInput{Messages: []MessageRow{turn, turn, turn},
+		ToolCalls: []ToolCallRow{{ToolName: "Read"}}}
+	if got := detectOverpowered(in); len(got) != 0 {
+		t.Errorf("sonnet should not fire overpowered, got %d", len(got))
+	}
+}
