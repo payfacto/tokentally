@@ -13,6 +13,8 @@ func detectRetryChurn(in SessionInput) []Finding {
 	var lastErr bool
 	for _, tc := range in.ToolCalls {
 		key := tc.ToolName + "\x00" + tc.Target
+		// A repeat of the same (tool,target) right after an error counts as a
+		// retry — including the eventual successful call that ends the run.
 		if key == lastKey && lastErr {
 			retries[key]++
 		}
@@ -106,6 +108,8 @@ func detectLooping(in SessionInput) []Finding {
 			sets = append(sets, wordSet(m.PromptText))
 		}
 	}
+	// streak counts messages in the current run (init 1 = the first message);
+	// each similar neighbour extends it, so streak equals the run's message count.
 	maxStreak, streak := 1, 1
 	for i := 1; i < len(sets); i++ {
 		if jaccard(sets[i-1], sets[i]) > loopingJaccardMin {
@@ -162,7 +166,7 @@ func detectOutputWaste(in SessionInput) []Finding {
 	if float64(sumOut)/float64(sumIn) <= outputWasteRatio {
 		return make([]Finding, 0)
 	}
-	excess := sumOut - int64(float64(sumIn)*1.5)
+	excess := sumOut - int64(float64(sumIn)*outputWasteExcessBaseline)
 	if excess <= outputWasteMinExcess {
 		return make([]Finding, 0)
 	}
@@ -232,7 +236,7 @@ func detectWastefulThinking(in SessionInput) []Finding {
 			continue
 		}
 		thinkEst := int64(len(m.ThinkingText) / charsPerToken)
-		if float64(thinkEst) > wastefulThinkingRatio*float64(m.OutputTokens) && thinkEst > m.OutputTokens {
+		if float64(thinkEst) > wastefulThinkingRatio*float64(m.OutputTokens) {
 			wasteTurns++
 			excess += thinkEst - m.OutputTokens
 		}
