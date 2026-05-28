@@ -21,7 +21,7 @@ type SessionChunk struct {
 	ContextAttrib *ContextAttrib  `json:"contextAttrib,omitempty"`
 	TokensBefore  int             `json:"tokensBefore,omitempty"`
 	TokensAfter   int             `json:"tokensAfter,omitempty"`
-	MsgType       string          `json:"msgType,omitempty"`   // raw DB type: "user"|"attachment"
+	MsgType       string          `json:"msgType,omitempty"`     // raw DB type: "user"|"attachment"
 	IsSidechain   int             `json:"isSidechain,omitempty"` // 1 = subagent turn
 }
 

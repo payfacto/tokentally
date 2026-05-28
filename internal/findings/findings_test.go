@@ -31,13 +31,13 @@ func TestTierOf(t *testing.T) {
 
 func TestHumanTokens(t *testing.T) {
 	cases := map[int64]string{
-		0:        "0",
-		500:      "500",
-		1000:     "1K",
-		1500:     "1.5K",
-		12000:    "12K",
-		1000000:  "1.0M",
-		1500000:  "1.5M",
+		0:       "0",
+		500:     "500",
+		1000:    "1K",
+		1500:    "1.5K",
+		12000:   "12K",
+		1000000: "1.0M",
+		1500000: "1.5M",
 	}
 	for n, want := range cases {
 		if got := humanTokens(n); got != want {
