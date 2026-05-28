@@ -222,3 +222,29 @@ func detectOverpowered(in SessionInput) []Finding {
 		Meta: map[string]any{"opus_share": opusShare, "avg_output": avgOutput, "simple_share": simpleShare},
 	}}
 }
+
+// detectWastefulThinking flags turns whose thinking dwarfs their output.
+func detectWastefulThinking(in SessionInput) []Finding {
+	var wasteTurns int
+	var excess int64
+	for _, m := range in.Messages {
+		if m.Type != "assistant" {
+			continue
+		}
+		thinkEst := int64(len(m.ThinkingText) / charsPerToken)
+		if float64(thinkEst) > wastefulThinkingRatio*float64(m.OutputTokens) && thinkEst > m.OutputTokens {
+			wasteTurns++
+			excess += thinkEst - m.OutputTokens
+		}
+	}
+	if wasteTurns < wastefulThinkingMinTurns {
+		return make([]Finding, 0)
+	}
+	return []Finding{{
+		Kind: KindWastefulThinking, Severity: SevLow, SessionID: in.SessionID,
+		EstTokens: excess,
+		Detail: fmt.Sprintf("%d turns thought far more than they produced — ~%s tokens in oversized reasoning.",
+			wasteTurns, humanTokens(excess)),
+		Meta: map[string]any{"waste_turns": wasteTurns},
+	}}
+}
