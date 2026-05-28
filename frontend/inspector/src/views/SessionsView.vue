@@ -9,6 +9,7 @@ import { generateSessionHTML } from '../lib/export'
 import type { SessionMeta } from '../lib/export'
 import { fmt } from '../lib/fmt'
 import { api } from '../lib/api'
+import { KIND_LABELS, sevClass } from '../lib/findings'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,19 +32,6 @@ const badges = ref<Record<string, BadgeEntry>>({})
 
 interface FindingRow { kind: string; severity: number; est_tokens: number; detail: string }
 interface SessionFindings { score: number | null; grade: string | null; findings: FindingRow[] }
-
-const KIND_LABELS: Record<string, string> = {
-  'retry-churn':       'Retry churn',
-  'tool-cascade':      'Tool cascade',
-  'looping':           'Looping',
-  'output-waste':      'Output waste',
-  'overpowered-model': 'Overpowered model',
-  'wasteful-thinking': 'Wasteful thinking',
-}
-
-function sevClass(rank: number) {
-  return rank >= 3 ? 'sev-high' : rank === 2 ? 'sev-med' : 'sev-low'
-}
 
 const sessionFindings = ref<SessionFindings | null>(null)
 

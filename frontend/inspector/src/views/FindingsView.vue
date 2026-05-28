@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, withSince, sinceIso, RANGES } from '../lib/api'
 import { fmt } from '../lib/fmt'
+import { KIND_LABELS, sevClass } from '../lib/findings'
 import { useRange } from '../composables/useRange'
 import { useAppStore } from '../stores/app'
 
@@ -14,19 +15,6 @@ interface LowRow { session_id: string; project_slug: string; score: number; grad
 
 const kinds = ref<KindRow[]>([])
 const lowest = ref<LowRow[]>([])
-
-const KIND_LABELS: Record<string, string> = {
-  'retry-churn':       'Retry churn',
-  'tool-cascade':      'Tool cascade',
-  'looping':           'Looping',
-  'output-waste':      'Output waste',
-  'overpowered-model': 'Overpowered model',
-  'wasteful-thinking': 'Wasteful thinking',
-}
-
-function sevClass(rank: number) {
-  return rank >= 3 ? 'sev-high' : rank === 2 ? 'sev-med' : 'sev-low'
-}
 
 function tokens(n: number) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
