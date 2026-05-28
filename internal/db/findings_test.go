@@ -16,14 +16,15 @@ func seedRetrySession(t *testing.T, p *Pool, sid string) {
 		_, err := p.Write.Exec(
 			`INSERT INTO tool_calls (message_uuid, session_id, project_slug,
 			   tool_name, target, is_error, timestamp) VALUES (?,?,?,?,?,?,?)`,
-			sid+"-m1", sid, "proj", "Read", "a.go", e, "2026-05-01T10:00:0"+itoa(i)+"Z")
+			sid+"-m1", sid, "proj", "Read", "a.go", e, "2026-05-01T10:00:0"+singleDigit(i)+"Z")
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
-func itoa(i int) string { return string(rune('0' + i)) }
+// singleDigit converts a single-digit int (0–9) to its ASCII character string.
+func singleDigit(i int) string { return string(rune('0' + i)) }
 
 func TestRecomputeFindings(t *testing.T) {
 	p, err := Open(":memory:")
