@@ -255,6 +255,30 @@ func TestMigrateBackfillMessageCategory(t *testing.T) {
 	}
 }
 
+func TestMigrateAddFindingsTablesUpgrade(t *testing.T) {
+	// Exercise the v4→v5 UPGRADE path: the migration runs on a DB that has no
+	// findings or session_scores tables yet (simulating a pre-v5 database).
+	conn := freshConn(t)
+
+	if err := migrateAddFindingsTables(conn); err != nil {
+		t.Fatalf("migrateAddFindingsTables: %v", err)
+	}
+
+	for _, tbl := range []string{"findings", "session_scores"} {
+		var name string
+		if err := conn.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl,
+		).Scan(&name); err != nil {
+			t.Errorf("table %s missing after migration: %v", tbl, err)
+		}
+	}
+
+	// Idempotency: second call must not error.
+	if err := migrateAddFindingsTables(conn); err != nil {
+		t.Errorf("second migrateAddFindingsTables (idempotency): %v", err)
+	}
+}
+
 func TestFindingsTablesExist(t *testing.T) {
 	p, err := Open(":memory:")
 	if err != nil {
