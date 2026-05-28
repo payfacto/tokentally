@@ -254,3 +254,34 @@ func TestMigrateBackfillMessageCategory(t *testing.T) {
 		}
 	}
 }
+
+func TestFindingsTablesExist(t *testing.T) {
+	p, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for _, tbl := range []string{"findings", "session_scores"} {
+		var name string
+		err := p.Read.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&name)
+		if err != nil {
+			t.Errorf("table %s missing: %v", tbl, err)
+		}
+	}
+}
+
+func TestSchemaVersionAtTarget(t *testing.T) {
+	p, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	v, err := SchemaVersion(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != targetSchemaVersion {
+		t.Errorf("fresh DB schema_version=%d want %d", v, targetSchemaVersion)
+	}
+}
