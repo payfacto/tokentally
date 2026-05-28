@@ -1,0 +1,156 @@
+// Package findings detects per-session token-waste patterns and computes a
+// per-session quality score. It is pure: no database or Wails dependencies, so
+// every detector and the scorer can be unit-tested with hand-built inputs.
+package findings
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Kinds.
+const (
+	KindRetryChurn       = "retry-churn"
+	KindToolCascade      = "tool-cascade"
+	KindLooping          = "looping"
+	KindOutputWaste      = "output-waste"
+	KindOverpoweredModel = "overpowered-model"
+	KindWastefulThinking = "wasteful-thinking"
+)
+
+// Severities.
+const (
+	SevHigh = "high"
+	SevMed  = "med"
+	SevLow  = "low"
+)
+
+// Detector thresholds and token multipliers. The multipliers are deliberately
+// rough heuristics (inherited from the token-optimizer project); the UI labels
+// every figure "est.".
+const (
+	retryChurnMinRetries     = 3
+	retryChurnTokensPerRetry = 3000
+
+	toolCascadeMinStreak    = 4
+	toolCascadeHighStreak   = 6
+	toolCascadeTokensPerErr = 2500
+
+	loopingMinStreak    = 4
+	loopingJaccardMin   = 0.75
+	loopingTokensPerMsg = 5000
+
+	outputWasteMinSimpleTurns = 3
+	outputWasteRatio          = 3.0
+	outputWasteMinExcess      = 5000
+
+	overpoweredOpusShareMin   = 0.5
+	overpoweredMaxAvgOutput   = 5000
+	overpoweredSimpleShareMin = 0.7
+	overpoweredSavingsFactor  = 0.6 // Sonnet ~60% cheaper than Opus
+
+	wastefulThinkingRatio    = 4.0
+	wastefulThinkingMinTurns = 4
+
+	dupReadMinRepeats = 3
+
+	defaultContextWindow = 200000
+	largeContextWindow   = 1000000
+	charsPerToken        = 4
+)
+
+// simpleTools are low-cost tools; turns using only these are "simple".
+var simpleTools = map[string]bool{
+	"Read": true, "Glob": true, "Grep": true, "Edit": true, "Write": true,
+}
+
+// MessageRow is one transcript message as the detectors need it.
+type MessageRow struct {
+	UUID         string
+	Type         string // "user" | "assistant" | "attachment"
+	IsSidechain  bool
+	Model        string
+	Timestamp    string
+	InputTokens  int64
+	OutputTokens int64
+	CacheCreate  int64 // 5m + 1h combined
+	PromptText   string
+	ThinkingText string
+	TokensBefore int64
+	ToolNames    []string // tools invoked by this assistant turn
+}
+
+// ToolCallRow is one tool invocation, ordered by Timestamp within a session.
+type ToolCallRow struct {
+	ToolName  string
+	Target    string
+	IsError   bool
+	Timestamp string
+}
+
+// SessionInput is everything the detectors + scorer see for one session.
+type SessionInput struct {
+	SessionID     string
+	ProjectSlug   string
+	LastActivity  string
+	ContextWindow int64 // set by the loader via ContextWindowFor
+	Messages      []MessageRow
+	ToolCalls     []ToolCallRow
+}
+
+// Finding is one detected waste pattern in one session.
+type Finding struct {
+	Kind      string
+	Severity  string
+	SessionID string
+	EstTokens int64
+	Detail    string
+	Meta      map[string]any
+}
+
+// ContextWindowFor returns the model's context window in tokens. Defaults to
+// 200K; recognises 1M variants by the "1m" marker Claude uses.
+func ContextWindowFor(model string) int64 {
+	if strings.Contains(strings.ToLower(model), "1m") {
+		return largeContextWindow
+	}
+	return defaultContextWindow
+}
+
+// tierOf infers opus/sonnet/haiku from a model name ("" if non-Claude).
+func tierOf(model string) string {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "opus"):
+		return "opus"
+	case strings.Contains(m, "sonnet"):
+		return "sonnet"
+	case strings.Contains(m, "haiku"):
+		return "haiku"
+	}
+	return ""
+}
+
+// humanTokens renders a token count like "12K" / "1.3M".
+func humanTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1000:
+		return fmt.Sprintf("%dK", n/1000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// shortTarget trims a path to its last two segments for readable details.
+func shortTarget(t string) string {
+	if t == "" {
+		return "(no target)"
+	}
+	parts := strings.Split(t, "/")
+	if len(parts) <= 2 {
+		return t
+	}
+	return ".../" + strings.Join(parts[len(parts)-2:], "/")
+}
