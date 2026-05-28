@@ -74,3 +74,41 @@ func TestRecomputeFindings_ReplacesPrior(t *testing.T) {
 		t.Errorf("want 1 finding after re-run, got %d", n)
 	}
 }
+
+func TestFindingsReadHelpers(t *testing.T) {
+	p, _ := Open(":memory:")
+	defer p.Close()
+	seedRetrySession(t, p, "sess1")
+	if err := RecomputeFindings(p, "sess1"); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := FindingsSummary(p, "", "")
+	if err != nil || len(summary) == 0 {
+		t.Fatalf("summary empty: %v", err)
+	}
+	if summary[0]["kind"] != "retry-churn" {
+		t.Errorf("summary kind=%v", summary[0]["kind"])
+	}
+
+	low, err := LowestScoringSessions(p, "", "", 10)
+	if err != nil || len(low) == 0 {
+		t.Fatalf("low empty: %v", err)
+	}
+
+	sf, err := SessionFindings(p, "sess1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sf["score"] == nil || len(sf["findings"].([]map[string]any)) == 0 {
+		t.Errorf("session findings malformed: %+v", sf)
+	}
+
+	badges, err := FindingsBadges(p, []string{"sess1", "nope"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if badges["sess1"] == nil {
+		t.Errorf("expected badge for sess1")
+	}
+}
