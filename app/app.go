@@ -1018,10 +1018,10 @@ func stringVal(v any) string {
 	return s
 }
 
-// blendedRatePerToken returns the average USD cost per billable token across
-// the range, used to translate estimated wasted tokens into dollars for the
-// aggregated Findings view (which spans multiple models). Returns 0 when there
-// is no costed usage.
+// blendedRatePerToken returns the average USD cost per actual token (including
+// cache reads) across the range, used to translate estimated wasted tokens into
+// dollars for the aggregated Findings view (which spans multiple models).
+// Returns 0 when there is no costed usage.
 func (a *App) blendedRatePerToken(since, until string) float64 {
 	models, err := db.ModelBreakdown(a.conn, since, until)
 	if err != nil {
@@ -1035,6 +1035,7 @@ func (a *App) blendedRatePerToken(since, until string) float64 {
 			totalCost += *c
 		}
 		totalTokens += asInt64(m["input_tokens"]) + asInt64(m["output_tokens"]) +
+			asInt64(m["cache_read_tokens"]) +
 			asInt64(m["cache_create_5m_tokens"]) + asInt64(m["cache_create_1h_tokens"])
 	}
 	if totalTokens == 0 {
