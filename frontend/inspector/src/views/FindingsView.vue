@@ -15,15 +15,17 @@ interface LowRow { session_id: string; project_slug: string; score: number; grad
 
 const kinds = ref<KindRow[]>([])
 const lowest = ref<LowRow[]>([])
+const totalSessionsCount = ref<number>(0)
 
 const totalTokens   = computed(() => kinds.value.reduce((s, k) => s + (k.est_tokens || 0), 0))
 const totalCost     = computed(() => kinds.value.reduce((s, k) => s + (k.est_cost_usd || 0), 0))
-const totalSessions = computed(() => kinds.value.reduce((m, k) => Math.max(m, k.sessions || 0), 0))
+const totalSessions = computed(() => totalSessionsCount.value)
 
 async function fetchAll() {
   const since = sinceIso(range.value)
   kinds.value  = (await api<KindRow[]>(withSince('/api/findings', since)))        ?? []
   lowest.value = (await api<LowRow[]>(withSince('/api/findings/lowest', since)))  ?? []
+  totalSessionsCount.value = (await api<number>(withSince('/api/findings/total-sessions', since))) ?? 0
 }
 
 onMounted(fetchAll)

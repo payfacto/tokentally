@@ -59,6 +59,7 @@ declare global {
           // Findings
           GetFindingsSummary(since: string, until: string): Promise<unknown[]>
           GetLowestScoringSessions(since: string, until: string): Promise<unknown[]>
+          GetFindingsTotalSessions(since: string, until: string): Promise<number>
           GetSessionFindings(sessionId: string): Promise<unknown>
           GetSessionBadges(sessionIds: string[]): Promise<unknown>
           // Settings — service
