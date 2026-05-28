@@ -25,6 +25,18 @@ const projectName = computed(() => (route.query.name as string) || projectFilter
 const { data: sessions, refetch: refetchSessions } = useSessionList(range, projectFilter)
 const { data: chunks, visibleCount, isLoading, error, cancelReveal } = useSessionChunks(selectedId)
 
+interface BadgeEntry { grade: string; score: number; findings: number; sev_rank: number }
+const badges = ref<Record<string, BadgeEntry>>({})
+
+async function fetchBadges(list: Session[]) {
+  if (!list.length) { badges.value = {}; return }
+  const ids = list.map((s) => s.session_id)
+  const result = await window.go.app.App.GetSessionBadges(ids)
+  badges.value = (result as Record<string, BadgeEntry>) ?? {}
+}
+
+watch(sessions, fetchBadges)
+
 function pick(session: Session) {
   router.push('/sessions/' + encodeURIComponent(session.session_id))
 }
@@ -89,7 +101,14 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
           :class="{ active: s.session_id === selectedId }"
           @click="pick(s)"
         >
-          <div class="session-title">{{ s.project_name || s.session_id.slice(0, 8) }}</div>
+          <div class="session-title-row">
+            <span class="session-title">{{ s.project_name || s.session_id.slice(0, 8) }}</span>
+            <span v-if="badges[s.session_id]"
+                  class="sess-badge"
+                  :class="`grade-${badges[s.session_id].grade}`">
+              {{ badges[s.session_id].grade }} · {{ badges[s.session_id].findings }} finding{{ badges[s.session_id].findings === 1 ? '' : 's' }}
+            </span>
+          </div>
           <div class="session-meta">
             <span class="muted mono">{{ fmt.tok(s.tokens) }} tok</span>
             <span class="muted mono">{{ fmt.date(s.started) }}</span>
@@ -149,7 +168,12 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 .session-row { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
 .session-row:hover { background: var(--panel); }
 .session-row.active { background: var(--panel-2, var(--panel)); border-left: 2px solid var(--accent); }
-.session-title { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.session-title-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; overflow: hidden; }
+.session-title { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
+.sess-badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
+.grade-A, .grade-B { color: #7fd49a; }
+.grade-C, .grade-D { color: #e0a23a; }
+.grade-F { color: #e5534b; }
 .session-meta { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; margin-bottom: 2px; }
 .sessions-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .inspector-header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; flex-shrink: 0; }
