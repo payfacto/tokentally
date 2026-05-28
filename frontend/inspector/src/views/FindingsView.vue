@@ -16,12 +16,6 @@ interface LowRow { session_id: string; project_slug: string; score: number; grad
 const kinds = ref<KindRow[]>([])
 const lowest = ref<LowRow[]>([])
 
-function tokens(n: number) {
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
-  if (n >= 1e3) return Math.round(n / 1e3) + 'K'
-  return String(n)
-}
-
 const totalTokens   = computed(() => kinds.value.reduce((s, k) => s + (k.est_tokens || 0), 0))
 const totalCost     = computed(() => kinds.value.reduce((s, k) => s + (k.est_cost_usd || 0), 0))
 const totalSessions = computed(() => kinds.value.reduce((m, k) => Math.max(m, k.sessions || 0), 0))
@@ -54,7 +48,7 @@ watch([rangeKey, () => store.lastScan], fetchAll)
     </div>
 
     <div class="card banner" v-if="kinds.length">
-      <span class="big">~{{ tokens(totalTokens) }}</span>
+      <span class="big">~{{ fmt.tok(totalTokens) }}</span>
       <span class="sub">est. recoverable ·
         <b class="money">{{ fmt.money(totalCost, store.currency, store.exchangeRate) }}</b>
         across {{ totalSessions }} session{{ totalSessions === 1 ? '' : 's' }}</span>
@@ -70,7 +64,7 @@ watch([rangeKey, () => store.lastScan], fetchAll)
           <div class="meta">{{ k.sessions }} session{{ k.sessions === 1 ? '' : 's' }} · {{ k.occurrences }} occurrence{{ k.occurrences === 1 ? '' : 's' }}</div>
         </div>
         <div class="amt">
-          <div class="tok">~{{ tokens(k.est_tokens) }}</div>
+          <div class="tok">~{{ fmt.tok(k.est_tokens) }}</div>
           <div class="usd">{{ fmt.money(k.est_cost_usd, store.currency, store.exchangeRate) }}</div>
         </div>
       </div>

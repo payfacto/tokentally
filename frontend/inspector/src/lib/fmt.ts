@@ -38,5 +38,5 @@ export const fmt = {
   ts:   (t: string | null | undefined): string => (t || '').slice(0, 16).replace('T', ' '),
   date: (t: string | null | undefined): string => t ? t.slice(0, 10) : '—',
   time: (t: string): string => new Date(t).toLocaleTimeString(),
-  tok:  (n?: number): string => !n ? '0' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n),
+  tok:  (n?: number): string => !n ? '0' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n),
 }
