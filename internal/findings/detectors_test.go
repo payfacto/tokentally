@@ -1,6 +1,9 @@
 package findings
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDetectRetryChurn(t *testing.T) {
 	in := SessionInput{SessionID: "s1", ToolCalls: []ToolCallRow{
@@ -134,5 +137,32 @@ func TestDetectOverpowered_SonnetIgnored(t *testing.T) {
 		ToolCalls: []ToolCallRow{{ToolName: "Read"}}}
 	if got := detectOverpowered(in); len(got) != 0 {
 		t.Errorf("sonnet should not fire overpowered, got %d", len(got))
+	}
+}
+
+func TestDetectWastefulThinking(t *testing.T) {
+	// thinkEst = len/4. Need thinkEst > 4*output on >=4 turns.
+	// 4000 chars → 1000 think tokens; output 100 → 1000 > 400. excess = 900.
+	think := make([]byte, 4000)
+	for i := range think {
+		think[i] = 'x'
+	}
+	turn := MessageRow{Type: "assistant", OutputTokens: 100, ThinkingText: string(think)}
+	in := SessionInput{SessionID: "s1", Messages: []MessageRow{turn, turn, turn, turn}}
+	got := detectWastefulThinking(in)
+	if len(got) != 1 || got[0].Kind != KindWastefulThinking {
+		t.Fatalf("want 1 wasteful-thinking finding, got %+v", got)
+	}
+	if got[0].EstTokens != 4*900 {
+		t.Errorf("EstTokens=%d want 3600", got[0].EstTokens)
+	}
+}
+
+func TestDetectWastefulThinking_FewTurnsIgnored(t *testing.T) {
+	think := strings.Repeat("x", 4000)
+	turn := MessageRow{Type: "assistant", OutputTokens: 100, ThinkingText: think}
+	in := SessionInput{Messages: []MessageRow{turn, turn, turn}} // only 3
+	if got := detectWastefulThinking(in); len(got) != 0 {
+		t.Errorf("3 turns should not fire, got %d", len(got))
 	}
 }
