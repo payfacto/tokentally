@@ -52,7 +52,11 @@ desktop.ini
 .worktrees/
 
 # Claude Code tooling
-.claude/
+# .claude/ is committed (skills, slash commands, settings.json define the
+# agent contract for this repo). Only the per-contributor and per-session
+# files are ignored.
+.claude/settings.local.json
+.claude/.current-tool
 .superpowers/
 .impeccable.md
 HANDOFF.md

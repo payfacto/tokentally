@@ -10,7 +10,7 @@
 | JavaScript | ES2020+ (vanilla) | Main web SPA (`frontend/web/`) |
 
 ### Desktop Framework
-**Wails v2.12.0** — embeds a WebView (WebKit on macOS/Linux, WebView2 on Windows) inside a native Go binary. The Go backend is exposed to the frontend via code-generated JS bindings (`window.go.app.App.*`). No Electron; no Node.js at runtime.
+**Wails v2.13.0** — embeds a WebView (WebKit on macOS/Linux, WebView2 on Windows) inside a native Go binary. The Go backend is exposed to the frontend via code-generated JS bindings (`window.go.app.App.*`). No Electron; no Node.js at runtime.
 
 ### Database
 **SQLite** via `modernc.org/sqlite v1.49.1` — pure-Go CGO-free driver. WAL mode enabled. Database path defaults to `~/.claude/tokentally.db`, overridable via `TOKENTALLY_DB`.
@@ -39,7 +39,7 @@ Vanilla JS (no framework, no build step). Served by Wails as embedded assets.
 ### Key Go Dependencies
 | Module | Version | Purpose |
 |---|---|---|
-| `github.com/wailsapp/wails/v2` | 2.12.0 | Desktop framework |
+| `github.com/wailsapp/wails/v2` | 2.13.0 | Desktop framework |
 | `modernc.org/sqlite` | 1.49.1 | SQLite driver (pure Go) |
 | `github.com/getlantern/systray` | 1.2.2 | Windows system tray icon |
 | `golang.org/x/sys` | 0.42.0 | Windows SCM service management |

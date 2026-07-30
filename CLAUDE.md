@@ -1,3 +1,5 @@
+@.context/INDEX.md
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -5,6 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 **TokenTally** — a cross-platform desktop application (Wails v2 + Go) that reads Claude Code JSONL transcripts from `~/.claude/projects/` and presents a 7-tab token usage dashboard. On Windows the same binary also runs as a system tray icon and a background Windows SCM service.
+
+## Language
+
+Go (backend, Wails bindings), TypeScript (Vue inspector SPA, `frontend/inspector/`), and vanilla JavaScript (main SPA, `frontend/web/`). **Always use the matching `clean-code:<lang>` skill when writing, editing, or reviewing code in this repo** — this is not optional for "quick" changes:
+
+- Go (`internal/`, `app/`, `svc/`, `cmd/`, `main_*.go`) → `clean-code:go`
+- TypeScript (`frontend/inspector/`) → `clean-code:typescript`
+- JavaScript (`frontend/web/`, excluding generated `wailsjs/` and `app.bundle.js`) → `clean-code:javascript`
 
 ## Commands
 

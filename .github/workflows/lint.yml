@@ -1,0 +1,23 @@
+name: Lint
+
+# Enforces the doc-first contract on every PR (release.yml only triggers on
+# push to main/tags, so it never catches a stale CLAUDE.md/.context/ before
+# merge). See scripts/doc-lint.mjs and .context/reference/CLAUDE-CONTEXT-PATTERN.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  doc-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: doc-lint
+        run: node scripts/doc-lint.mjs

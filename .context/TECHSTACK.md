@@ -9,7 +9,7 @@ TokenTally is a cross-platform desktop application that reads Claude Code JSONL 
 - WebView2 (Windows), WebKit (macOS), webkit2gtk-4.1 (Linux) — provided by Wails
 
 ## Core Frameworks and Libraries
-- Wails v2 v2.12.0 — desktop shell, JS↔Go bindings, embedded asset server (`github.com/wailsapp/wails/v2`)
+- Wails v2 v2.13.0 — desktop shell, JS↔Go bindings, embedded asset server (`github.com/wailsapp/wails/v2`)
 - getlantern/systray v1.2.2 — Windows system tray icon and menu
 - golang.org/x/sys v0.42.0 — Windows SCM service handler (`golang.org/x/sys/windows/svc`)
 - godbus/dbus/v5 v5.1.0 — indirect, Linux desktop notification transport
