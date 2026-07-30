@@ -5,7 +5,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X 'tokentally/internal/version.Version=$(VERSION)'
 
-.PHONY: build build-windows build-darwin build-linux test clean version
+.PHONY: build build-windows build-darwin build-linux test doc-lint clean version
 
 build:
 	wails build -ldflags "$(LDFLAGS)"
@@ -21,6 +21,9 @@ build-linux:
 
 test:
 	go test ./...
+
+doc-lint:
+	node scripts/doc-lint.mjs
 
 clean:
 	rm -rf build/bin
