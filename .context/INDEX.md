@@ -13,7 +13,7 @@
 
 ### `specs/`
 
-- _(none yet — create `YYYY-MM-DD-<topic>-design.md` here before starting non-trivial feature work; the last one, the Findings subsystem design, was removed after the feature shipped)_
+- [specs/2026-07-29-markdown-notes-viewer-design.md](specs/2026-07-29-markdown-notes-viewer-design.md) — Design for a Notes tab that browses/renders markdown files from configurable out-of-repo folders (the `handoff` and `afk` skills' output dirs).
 
 ### `plans/`
 
