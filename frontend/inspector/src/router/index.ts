@@ -4,6 +4,7 @@ import PromptsView     from '../views/PromptsView.vue'
 import SessionsView    from '../views/SessionsView.vue'
 import ProjectsView    from '../views/ProjectsView.vue'
 import SkillsView      from '../views/SkillsView.vue'
+import NotesView       from '../views/NotesView.vue'
 import TipsView        from '../views/TipsView.vue'
 import FindingsView    from '../views/FindingsView.vue'
 import SettingsView    from '../views/SettingsView.vue'
@@ -21,6 +22,7 @@ export default createRouter({
     { path: '/sessions/:id',   component: SessionsView },
     { path: '/projects',       component: ProjectsView },
     { path: '/skills',         component: SkillsView },
+    { path: '/notes',          component: NotesView },
     { path: '/tips',           component: TipsView },
     { path: '/findings',       component: FindingsView },
     { path: '/tools',          component: OverageView },

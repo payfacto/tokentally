@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { fmt } from '../lib/fmt'
 import { useAppStore } from '../stores/app'
-import type { ModelRate, PlanEntry } from '../composables/useWails'
+import type { ModelRate, PlanEntry, MarkdownFolder } from '../composables/useWails'
 
 const store = useAppStore()
 
@@ -32,6 +32,11 @@ const apiKey = ref('')
 const ratesMsg = ref('')
 
 const models = ref<ModelRate[]>([])
+
+const markdownFolders = ref<MarkdownFolder[]>([])
+const newFolderPath = ref('')
+const newFolderLabel = ref('')
+const folderMsg = ref('')
 
 const retentionDays = ref(0)
 const retentionMsg = ref('')
@@ -68,13 +73,14 @@ function flash(msgRef: { value: string }, text: string, color = 'var(--good)', d
 }
 
 async function loadAll() {
-  const [planResp, m, p, r, key, days] = await Promise.all([
+  const [planResp, m, p, r, key, days, folders] = await Promise.all([
     window.go.app.App.GetPlan(),
     window.go.app.App.GetPricingModels(),
     window.go.app.App.GetPricingPlans(),
     window.go.app.App.GetExchangeRates(),
     window.go.app.App.GetExchangeApiKey(),
     window.go.app.App.GetRetentionDays(),
+    window.go.app.App.GetMarkdownFolders(),
   ])
   selectedPlan.value = planResp.plan || 'api'
   currency.value = planResp.currency || 'CAD'
@@ -84,7 +90,32 @@ async function loadAll() {
   apiKey.value = key || ''
   retentionDays.value = days > 0 ? days : 0
   exchangeRate.value = r[planResp.currency || 'CAD'] || 1.0
+  markdownFolders.value = folders
   refreshServiceStatus()
+}
+
+async function addMarkdownFolder() {
+  folderMsg.value = ''
+  const path = newFolderPath.value.trim()
+  const label = newFolderLabel.value.trim()
+  if (!path || !label) {
+    folderMsg.value = 'Path and label are both required.'
+    return
+  }
+  try {
+    await window.go.app.App.AddMarkdownFolder(path, label)
+    newFolderPath.value = ''
+    newFolderLabel.value = ''
+    markdownFolders.value = await window.go.app.App.GetMarkdownFolders()
+  } catch (e: unknown) {
+    folderMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))
+  }
+}
+
+async function deleteMarkdownFolder(path: string) {
+  if (!confirm(`Stop browsing "${path}" in the Notes tab?`)) return
+  await window.go.app.App.DeleteMarkdownFolder(path)
+  markdownFolders.value = await window.go.app.App.GetMarkdownFolders()
 }
 
 async function savePlan() {
@@ -425,6 +456,33 @@ onUnmounted(() => timers.forEach(clearTimeout))
         <span class="muted" style="font-size:12px;margin-left:10px">{{ purgeMsg }}</span>
       </div>
       <p class="muted" style="font-size:11px;margin-top:8px">Removes messages from TokenTally's database only. Your <code style="font-size:11px">~/.claude/projects/</code> files are not affected and won't be re-imported.</p>
+    </div>
+
+    <!-- Markdown Folders -->
+    <div class="card" style="margin-top:16px">
+      <h2>Markdown Folders</h2>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Folders the Notes tab lists <code style="font-size:12px">*.md</code> files from (not recursive). Defaults are the <code style="font-size:12px">handoff</code> and <code style="font-size:12px">afk</code> skills' output directories.</p>
+      <div v-if="!markdownFolders.length"><p class="muted">No folders configured.</p></div>
+      <table v-else>
+        <thead><tr><th>path</th><th>label</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="f in markdownFolders" :key="f.path">
+            <td class="mono" style="font-size:12px">{{ f.path }}</td>
+            <td>{{ f.label }}</td>
+            <td style="white-space:nowrap;text-align:right">
+              <button class="icon-btn" title="Remove" style="color:var(--bad)" @click="deleteMarkdownFolder(f.path)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="flex" style="gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+        <input v-model="newFolderPath" class="form-input" style="flex:2;min-width:200px" placeholder="~/.claude/my-notes">
+        <input v-model="newFolderLabel" class="form-input" style="flex:1;min-width:120px" placeholder="Label">
+        <button class="primary" @click="addMarkdownFolder">Add</button>
+      </div>
+      <p v-if="folderMsg" class="muted" style="font-size:12px;margin-top:8px">{{ folderMsg }}</p>
     </div>
 
     <!-- Beta Features -->

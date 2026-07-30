@@ -722,6 +722,110 @@ func TestGetSetRetentionDays(t *testing.T) {
 	}
 }
 
+func TestMarkdownFoldersRoundTrip(t *testing.T) {
+	conn := openMem(t)
+
+	folders, err := db.GetMarkdownFolders(conn)
+	if err != nil {
+		t.Fatalf("GetMarkdownFolders (empty) failed: %v", err)
+	}
+	if len(folders) != 0 {
+		t.Fatalf("expected no folders, got %d", len(folders))
+	}
+
+	if err := db.AddMarkdownFolder(conn, "/tmp/handoffs", "Handoffs"); err != nil {
+		t.Fatalf("AddMarkdownFolder(handoffs) failed: %v", err)
+	}
+	if err := db.AddMarkdownFolder(conn, "/tmp/afk", "AFK Notes"); err != nil {
+		t.Fatalf("AddMarkdownFolder(afk) failed: %v", err)
+	}
+
+	folders, err = db.GetMarkdownFolders(conn)
+	if err != nil {
+		t.Fatalf("GetMarkdownFolders failed: %v", err)
+	}
+	if len(folders) != 2 {
+		t.Fatalf("expected 2 folders, got %d", len(folders))
+	}
+	if folders[0].Path != "/tmp/afk" || folders[0].Label != "AFK Notes" {
+		t.Errorf("folders[0] = %+v, want {/tmp/afk AFK Notes}", folders[0])
+	}
+	if folders[1].Path != "/tmp/handoffs" || folders[1].Label != "Handoffs" {
+		t.Errorf("folders[1] = %+v, want {/tmp/handoffs Handoffs}", folders[1])
+	}
+
+	// AddMarkdownFolder on an existing path replaces the label.
+	if err := db.AddMarkdownFolder(conn, "/tmp/afk", "AFK"); err != nil {
+		t.Fatalf("AddMarkdownFolder (replace) failed: %v", err)
+	}
+	folders, err = db.GetMarkdownFolders(conn)
+	if err != nil {
+		t.Fatalf("GetMarkdownFolders after replace failed: %v", err)
+	}
+	if len(folders) != 2 || folders[0].Label != "AFK" {
+		t.Fatalf("expected label replaced in place, got %+v", folders)
+	}
+
+	if err := db.DeleteMarkdownFolder(conn, "/tmp/afk"); err != nil {
+		t.Fatalf("DeleteMarkdownFolder failed: %v", err)
+	}
+	folders, err = db.GetMarkdownFolders(conn)
+	if err != nil {
+		t.Fatalf("GetMarkdownFolders after delete failed: %v", err)
+	}
+	if len(folders) != 1 || folders[0].Path != "/tmp/handoffs" {
+		t.Fatalf("expected only /tmp/handoffs to remain, got %+v", folders)
+	}
+}
+
+func TestSeedMarkdownFolderIdempotent(t *testing.T) {
+	conn := openMem(t)
+
+	if err := db.SeedMarkdownFolder(conn, "/tmp/handoffs", "Handoffs"); err != nil {
+		t.Fatalf("SeedMarkdownFolder (first) failed: %v", err)
+	}
+	// A second seed of the same path must not clobber a label the user
+	// might have edited via AddMarkdownFolder in between.
+	if err := db.AddMarkdownFolder(conn, "/tmp/handoffs", "My Handoffs"); err != nil {
+		t.Fatalf("AddMarkdownFolder failed: %v", err)
+	}
+	if err := db.SeedMarkdownFolder(conn, "/tmp/handoffs", "Handoffs"); err != nil {
+		t.Fatalf("SeedMarkdownFolder (second) failed: %v", err)
+	}
+
+	folders, err := db.GetMarkdownFolders(conn)
+	if err != nil {
+		t.Fatalf("GetMarkdownFolders failed: %v", err)
+	}
+	if len(folders) != 1 || folders[0].Label != "My Handoffs" {
+		t.Fatalf("expected user label to survive re-seed, got %+v", folders)
+	}
+}
+
+func TestMarkdownFoldersSeededGate(t *testing.T) {
+	conn := openMem(t)
+
+	seeded, err := db.IsMarkdownFoldersSeeded(conn)
+	if err != nil {
+		t.Fatalf("IsMarkdownFoldersSeeded (default) failed: %v", err)
+	}
+	if seeded {
+		t.Fatal("expected not seeded by default")
+	}
+
+	if err := db.MarkMarkdownFoldersSeeded(conn); err != nil {
+		t.Fatalf("MarkMarkdownFoldersSeeded failed: %v", err)
+	}
+
+	seeded, err = db.IsMarkdownFoldersSeeded(conn)
+	if err != nil {
+		t.Fatalf("IsMarkdownFoldersSeeded (after mark) failed: %v", err)
+	}
+	if !seeded {
+		t.Fatal("expected seeded after MarkMarkdownFoldersSeeded")
+	}
+}
+
 func TestPurgeMessages(t *testing.T) {
 	conn := openMem(t)
 

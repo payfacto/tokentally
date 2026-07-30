@@ -4,6 +4,7 @@
 
 - [TECHSTACK.md](TECHSTACK.md) — Stack reference: Go 1.25 + Wails v2 backend, Vue 3/Vite inspector SPA, vanilla-JS main SPA, SQLite (`modernc.org/sqlite`), build/CI tooling.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Deeper architecture reference: tech stack detail, the 10 core architectural patterns/decisions (build constraints, JSONL scanner, schema migrations, systray threading, etc.), and full directory layout.
+- [GO-RELEASE-PATTERNS.md](GO-RELEASE-PATTERNS.md) — Reusable Payfacto reference for Go projects that mirror Bitbucket → GitHub for CI and distribute via the Payfacto Homebrew tap (versioning via ldflags, mirror pipeline rules, brew formula/cask, CI secrets checklist).
 
 ## Subfolders
 

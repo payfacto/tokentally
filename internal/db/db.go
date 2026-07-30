@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS skill_sizes (
   file_bytes INTEGER NOT NULL,
   updated_at TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS markdown_folders (
+  path  TEXT PRIMARY KEY,
+  label TEXT NOT NULL
+);
 
 -- Full-text search index over messages.prompt_text. Uses the trigram tokenizer
 -- so MATCH 'dep' finds 'deploy' / 'deploying' / 'redeploy' just like
@@ -268,7 +272,7 @@ func initSchema(conn *sql.DB) error {
 
 // targetSchemaVersion is the schema generation this binary expects. Bump it
 // whenever a new migration is appended to the migrations slice.
-const targetSchemaVersion = 5
+const targetSchemaVersion = 6
 
 // migrations are applied in order; index N produces schema version N+1.
 // To add a new one: append the function and bump targetSchemaVersion.
@@ -277,7 +281,8 @@ var migrations = []func(*sql.DB) error{
 	migrateFTSBackfill,
 	migrateDropToolCallsAutoincrement,
 	migrateBackfillMessageCategory,
-	migrateAddFindingsTables, // v4→v5
+	migrateAddFindingsTables,       // v4→v5
+	migrateAddMarkdownFoldersTable, // v5→v6
 }
 
 // applyMigrations runs every migration whose version is greater than the
@@ -572,6 +577,20 @@ func migrateAddFindingsTables(conn *sql.DB) error {
 		if _, err := conn.Exec(s); err != nil {
 			return fmt.Errorf("add findings tables: %w", err)
 		}
+	}
+	return nil
+}
+
+// migrateAddMarkdownFoldersTable (v5→v6) creates the markdown_folders table
+// on existing databases. The CREATE TABLE IF NOT EXISTS statement in the
+// static schema already covers fresh DBs; this re-runs it so upgraded DBs
+// get the table too. Idempotent. Keep this definition in sync with the
+// matching CREATE TABLE statement in the schema const above.
+func migrateAddMarkdownFoldersTable(conn *sql.DB) error {
+	_, err := conn.Exec(`CREATE TABLE IF NOT EXISTS markdown_folders (
+	  path TEXT PRIMARY KEY, label TEXT NOT NULL)`)
+	if err != nil {
+		return fmt.Errorf("add markdown_folders table: %w", err)
 	}
 	return nil
 }
@@ -1601,6 +1620,82 @@ func SetExchangeRate(p *Pool, currency string, rate float64) error {
 	_, err := p.Write.Exec(`INSERT OR REPLACE INTO exchange_rates (currency, rate) VALUES (?,?)`, currency, rate)
 	if err != nil {
 		return fmt.Errorf("SetExchangeRate: %w", err)
+	}
+	return nil
+}
+
+// MarkdownFolder is a configured, flat (non-recursive) directory the Notes
+// tab lists *.md files from.
+type MarkdownFolder struct {
+	Path  string
+	Label string
+}
+
+// GetMarkdownFolders returns all configured folders, ordered by path.
+func GetMarkdownFolders(p *Pool) ([]MarkdownFolder, error) {
+	rows, err := p.Read.Query(`SELECT path, label FROM markdown_folders ORDER BY path`)
+	if err != nil {
+		return nil, fmt.Errorf("GetMarkdownFolders: %w", err)
+	}
+	defer rows.Close()
+
+	folders := []MarkdownFolder{}
+	for rows.Next() {
+		var f MarkdownFolder
+		if err := rows.Scan(&f.Path, &f.Label); err != nil {
+			return nil, fmt.Errorf("GetMarkdownFolders scan: %w", err)
+		}
+		folders = append(folders, f)
+	}
+	return folders, rows.Err()
+}
+
+// AddMarkdownFolder inserts a folder, or replaces its label if the path is already configured.
+func AddMarkdownFolder(p *Pool, path, label string) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO markdown_folders (path, label) VALUES (?,?)`, path, label)
+	if err != nil {
+		return fmt.Errorf("AddMarkdownFolder: %w", err)
+	}
+	return nil
+}
+
+// DeleteMarkdownFolder removes a configured folder by path.
+func DeleteMarkdownFolder(p *Pool, path string) error {
+	_, err := p.Write.Exec(`DELETE FROM markdown_folders WHERE path=?`, path)
+	if err != nil {
+		return fmt.Errorf("DeleteMarkdownFolder: %w", err)
+	}
+	return nil
+}
+
+// SeedMarkdownFolder inserts a default folder only if none exists at that path (preserves user edits/deletions).
+func SeedMarkdownFolder(p *Pool, path, label string) error {
+	_, err := p.Write.Exec(`INSERT OR IGNORE INTO markdown_folders (path, label) VALUES (?,?)`, path, label)
+	if err != nil {
+		return fmt.Errorf("SeedMarkdownFolder: %w", err)
+	}
+	return nil
+}
+
+// IsMarkdownFoldersSeeded returns true if the default markdown folders have been seeded.
+// Tracked separately from IsPricingSeeded so a pricing reset never re-triggers this seed.
+func IsMarkdownFoldersSeeded(p *Pool) (bool, error) {
+	var v string
+	err := p.Read.QueryRow(`SELECT v FROM plan WHERE k='markdown_folders_seeded'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("IsMarkdownFoldersSeeded: %w", err)
+	}
+	return v == "1", nil
+}
+
+// MarkMarkdownFoldersSeeded records that the default markdown folders have been seeded.
+func MarkMarkdownFoldersSeeded(p *Pool) error {
+	_, err := p.Write.Exec(`INSERT OR REPLACE INTO plan (k,v) VALUES ('markdown_folders_seeded','1')`)
+	if err != nil {
+		return fmt.Errorf("MarkMarkdownFoldersSeeded: %w", err)
 	}
 	return nil
 }

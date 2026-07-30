@@ -25,6 +25,13 @@ export interface ServiceStatus { installed: boolean; state: string }
 
 export interface ScanResult { Messages: number; Files: number }
 
+export interface MarkdownFolder { path: string; label: string }
+
+export interface MarkdownFile {
+  folder_path: string; folder_label: string; filename: string
+  full_path: string; size: number; mod_time: string
+}
+
 function rangeToSince(range: string): string {
   const days: Record<string, number> = { today: 1, '7d': 7, '30d': 30 }
   const d = days[range]

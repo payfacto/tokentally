@@ -279,6 +279,28 @@ func TestMigrateAddFindingsTablesUpgrade(t *testing.T) {
 	}
 }
 
+func TestMigrateAddMarkdownFoldersTableUpgrade(t *testing.T) {
+	// Exercise the v5→v6 UPGRADE path: the migration runs on a DB that has no
+	// markdown_folders table yet (simulating a pre-v6 database).
+	conn := freshConn(t)
+
+	if err := migrateAddMarkdownFoldersTable(conn); err != nil {
+		t.Fatalf("migrateAddMarkdownFoldersTable: %v", err)
+	}
+
+	var name string
+	if err := conn.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, "markdown_folders",
+	).Scan(&name); err != nil {
+		t.Errorf("table markdown_folders missing after migration: %v", err)
+	}
+
+	// Idempotency: second call must not error.
+	if err := migrateAddMarkdownFoldersTable(conn); err != nil {
+		t.Errorf("second migrateAddMarkdownFoldersTable (idempotency): %v", err)
+	}
+}
+
 func TestFindingsTablesExist(t *testing.T) {
 	p, err := Open(":memory:")
 	if err != nil {
