@@ -147,4 +147,4 @@ Platform-specific files use filename suffixes (`_windows.go`, `_darwin.go`) — 
 | --- | --- | --- |
 | `HOMEBREW_TAP_TOKEN` | GitHub repo settings → Secrets | Fine-grained PAT with `contents:write` on `payfacto/homebrew-tap`; used by the `brew-tap` CI job to push updated `Casks/tokentally.rb` after each `v*` tag release |
 
-**One-time tap setup:** `tokentally.rb` must exist at the root of `payfacto/homebrew-tap` before the first brew release (any placeholder content — the CI job overwrites it). The `brew-tap` job runs after all platform matrix builds complete and only fires on `v*` tag pushes.
+The `brew-tap` job writes to `Casks/tokentally.rb` (not `Formula/` — this is a macOS `.app` cask, and Homebrew only resolves `brew install --cask` against a tap's `Casks/` directory). It runs `mkdir -p Casks` before writing, so no placeholder file needs to pre-exist in `payfacto/homebrew-tap`. The job runs after all platform matrix builds complete and only fires on `v*` tag pushes.
