@@ -91,6 +91,7 @@ func (a *App) Startup(ctx context.Context) {
 	if !seeded {
 		a.seedFromDefaults()
 	}
+	a.seedMarkdownFolderDefaults()
 	a.reloadPricing()
 	if needsInspectorBackfill(a.conn) {
 		go a.runInspectorBackfill()
@@ -373,12 +374,12 @@ func (a *App) GetLmsgoSavings(since, until string) (map[string]any, error) {
 	bySub := make(map[string]*subAgg)
 
 	var (
-		totalCalls       int64
-		errorCalls       int64
-		totalInputBytes  int64
-		totalRespBytes   int64
-		filesResolved    int64
-		filesMissing     int64
+		totalCalls      int64
+		errorCalls      int64
+		totalInputBytes int64
+		totalRespBytes  int64
+		filesResolved   int64
+		filesMissing    int64
 	)
 
 	for _, call := range calls {
@@ -435,18 +436,18 @@ func (a *App) GetLmsgoSavings(since, until string) (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"total_calls":      totalCalls,
-		"error_calls":      errorCalls,
-		"successful_calls": totalCalls - errorCalls,
-		"input_bytes":      totalInputBytes,
-		"response_bytes":   totalRespBytes,
-		"input_tokens_apx": totalInputBytes / lmsgo.CharsPerToken,
+		"total_calls":         totalCalls,
+		"error_calls":         errorCalls,
+		"successful_calls":    totalCalls - errorCalls,
+		"input_bytes":         totalInputBytes,
+		"response_bytes":      totalRespBytes,
+		"input_tokens_apx":    totalInputBytes / lmsgo.CharsPerToken,
 		"response_tokens_apx": totalRespBytes / lmsgo.CharsPerToken,
-		"tokens_saved_apx": totalSaved / lmsgo.CharsPerToken,
-		"files_resolved":   filesResolved,
-		"files_missing":    filesMissing,
-		"by_subcommand":    breakdown,
-		"chars_per_token":  lmsgo.CharsPerToken,
+		"tokens_saved_apx":    totalSaved / lmsgo.CharsPerToken,
+		"files_resolved":      filesResolved,
+		"files_missing":       filesMissing,
+		"by_subcommand":       breakdown,
+		"chars_per_token":     lmsgo.CharsPerToken,
 	}, nil
 }
 

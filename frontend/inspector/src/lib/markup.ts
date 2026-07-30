@@ -69,6 +69,28 @@ export function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(raw, SANITIZE_CFG) as string
 }
 
+// Broader allow-list than SANITIZE_CFG: real documents (handoffs, AFK notes)
+// use GFM tables and strikethrough that chat-transcript previews never do.
+const DOCUMENT_SANITIZE_CFG: DOMPurify.Config = {
+  ALLOWED_TAGS: [
+    'p', 'br', 'hr', 'em', 'strong', 'b', 'i', 'del',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'a', 'span', 'div',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th',
+  ],
+  ALLOWED_ATTR: ['class', 'href'],
+  ALLOW_DATA_ATTR: false,
+}
+
+// Renders a full markdown document (not a chat-transcript preview) straight
+// through marked → DOMPurify, with no XML-tag preprocessing — handoff/AFK
+// notes are prose, not transcripts carrying pill-able system tags.
+export function renderDocument(text: string): string {
+  if (!text) return ''
+  const raw = marked.parse(text, { async: false }) as string
+  return DOMPurify.sanitize(raw, DOCUMENT_SANITIZE_CFG) as string
+}
+
 // Extract only the user-typed text from a prompt, removing injected XML blocks
 // (tag + all content between open and close) and standalone ALL_CAPS tags.
 // Falls back to tag-stripped content if nothing user-typed is found.

@@ -1,5 +1,8 @@
 import type { Chunk, Session } from './lib/types'
-import type { ModelRate, PlanEntry, PlanResponse, ServiceStatus, ScanResult } from './composables/useWails'
+import type {
+  ModelRate, PlanEntry, PlanResponse, ServiceStatus, ScanResult,
+  MarkdownFolder, MarkdownFile,
+} from './composables/useWails'
 
 declare global {
   interface Window {
@@ -66,6 +69,12 @@ declare global {
           GetServiceStatus(): Promise<ServiceStatus>
           InstallService(): Promise<void>
           UninstallService(): Promise<void>
+          // Notes — markdown folders
+          GetMarkdownFolders(): Promise<MarkdownFolder[]>
+          AddMarkdownFolder(path: string, label: string): Promise<void>
+          DeleteMarkdownFolder(path: string): Promise<void>
+          ListMarkdownFiles(): Promise<MarkdownFile[]>
+          ReadMarkdownFile(path: string): Promise<string>
         }
       }
     }
