@@ -51,12 +51,16 @@ TokenTally is a cross-platform desktop application that reads Claude Code JSONL 
 - Version injection at build time via `-ldflags "-X 'tokentally/internal/version.Version=…'"` resolved from `git describe --tags --always --dirty`
 
 ## Testing Stack
-- Go standard library `testing` — no third-party test framework
+- Go standard library `testing` for the backend — no third-party test framework
 - Test files distributed across packages: `internal/db`, `internal/scanner`, `internal/pricing`, `internal/tips`, `internal/classify`, `app`, `svc`, `integration`
 - Tests run on any platform (use `:memory:` SQLite); some `_linux_test.go` files are platform-gated for environment-specific paths
+- Vitest for the `frontend/inspector` Vue/TypeScript SPA (`npm test --prefix frontend/inspector`); no test runner for the vanilla-JS `frontend/web` SPA
 
 ## CI/CD and Delivery
 - Bitbucket Pipelines (`bitbucket-pipelines.yml`) — sole job force-pushes `main` and `v*` tags to GitHub mirror; image `alpine/git:latest`, `clone: depth: full`
+- GitHub Actions (`.github/workflows/lint.yml`), on every PR and push to `main`:
+  - `doc-lint` — runs `scripts/doc-lint.mjs` to enforce the doc-first contract
+  - `inspector-test` — `npm install` + `npm test` (Vitest) for `frontend/inspector`
 - GitHub Actions (`.github/workflows/release.yml`):
   - Matrix build on `ubuntu-latest`, `windows-latest`, `macos-latest`
   - `actions/setup-go@v5` (Go 1.25), `actions/setup-node@v4` (Node 20)

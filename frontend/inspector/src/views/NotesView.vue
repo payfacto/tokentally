@@ -4,6 +4,9 @@ import type { MarkdownFolder, MarkdownFile } from '../composables/useWails'
 import { renderDocument } from '../lib/markup'
 import { fmt } from '../lib/fmt'
 import { copyMarkdown } from '../lib/clipboard'
+import { FONT_SCALE_STEP } from '../lib/fontScale'
+import { useFontScale } from '../composables/useFontScale'
+import FontScaleControls from '../components/FontScaleControls.vue'
 
 const POLL_INTERVAL_MS = 15000
 
@@ -14,6 +17,8 @@ const content = ref('')
 const loadError = ref('')
 
 const renderedContent = computed(() => renderDocument(content.value))
+
+const { fontScale, fontScalePercent, stepFontScale, resetFontScale } = useFontScale('tt.notesFontScale')
 
 const groups = computed(() => {
   const byLabel = new Map<string, MarkdownFile[]>()
@@ -155,11 +160,18 @@ onUnmounted(() => clearInterval(pollTimer))
         <div class="notes-header">
           <span style="font-weight:600;font-size:14px">{{ selected.filename }}</span>
           <span class="muted" style="font-size:11px;font-family:var(--mono);margin-left:8px">{{ selected.folder_path }}</span>
+          <FontScaleControls
+            class="font-scale-slot"
+            :percent="fontScalePercent"
+            @decrease="stepFontScale(-FONT_SCALE_STEP)"
+            @increase="stepFontScale(FONT_SCALE_STEP)"
+            @reset="resetFontScale"
+          />
         </div>
         <div v-if="loadError" class="empty" style="padding:16px">
           <span>⚠</span> {{ loadError }}
         </div>
-        <div v-else class="notes-scroll markdown-body" v-html="renderedContent" />
+        <div v-else class="notes-scroll markdown-body" :style="{ '--notes-font-scale': fontScale }" v-html="renderedContent" />
       </template>
     </div>
   </div>
@@ -191,17 +203,19 @@ onUnmounted(() => clearInterval(pollTimer))
 .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 32px; }
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }
+.font-scale-slot { margin-left: auto; }
 
-.markdown-body :deep(h1) { font-size: 20px; margin: 0 0 12px; }
-.markdown-body :deep(h2) { font-size: 16px; margin: 20px 0 8px; }
-.markdown-body :deep(h3) { font-size: 14px; margin: 16px 0 6px; }
-.markdown-body :deep(p) { margin: 0 0 10px; line-height: 1.6; font-size: 13px; }
-.markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 0 0 10px; padding-left: 22px; font-size: 13px; line-height: 1.6; }
-.markdown-body :deep(code) { font-family: var(--mono); background: var(--panel); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.markdown-body :deep(h1) { font-size: calc(20px * var(--notes-font-scale, 1)); margin: 0 0 12px; }
+.markdown-body :deep(h2) { font-size: calc(16px * var(--notes-font-scale, 1)); margin: 20px 0 8px; }
+.markdown-body :deep(h3) { font-size: calc(14px * var(--notes-font-scale, 1)); margin: 16px 0 6px; }
+.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) { font-size: calc(13px * var(--notes-font-scale, 1)); margin: 14px 0 6px; }
+.markdown-body :deep(p) { margin: 0 0 10px; line-height: 1.6; font-size: calc(13px * var(--notes-font-scale, 1)); }
+.markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 0 0 10px; padding-left: 22px; font-size: calc(13px * var(--notes-font-scale, 1)); line-height: 1.6; }
+.markdown-body :deep(code) { font-family: var(--mono); background: var(--panel); padding: 1px 4px; border-radius: 3px; font-size: calc(12px * var(--notes-font-scale, 1)); }
 .markdown-body :deep(pre) { background: var(--panel); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 0 0 10px; }
 .markdown-body :deep(pre code) { background: none; padding: 0; }
 .markdown-body :deep(blockquote) { border-left: 2px solid var(--border); margin: 0 0 10px; padding-left: 12px; color: var(--muted); }
 .markdown-body :deep(a) { color: var(--accent); }
-.markdown-body :deep(table) { border-collapse: collapse; margin: 0 0 10px; font-size: 12px; }
+.markdown-body :deep(table) { border-collapse: collapse; margin: 0 0 10px; font-size: calc(12px * var(--notes-font-scale, 1)); }
 .markdown-body :deep(th), .markdown-body :deep(td) { border: 1px solid var(--border); padding: 4px 8px; }
 </style>

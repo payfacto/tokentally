@@ -43,7 +43,7 @@ const renderedText = computed<string>(() => renderMarkdown(props.chunk.text ?? '
 <style scoped>
 .user-turn { padding: 12px 0; border-bottom: 1px solid var(--border); position: relative; }
 .turn-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.turn-text { font-size: 13px; line-height: 1.6; word-break: break-word; padding-bottom: 20px; }
+.turn-text { font-size: calc(13px * var(--sessions-font-scale, 1)); line-height: 1.6; word-break: break-word; padding-bottom: 20px; }
 .muted { color: var(--muted); }
 .tag-subagent, .tag-hook {
   display: inline-flex; align-items: center; gap: 4px;
@@ -69,10 +69,10 @@ const renderedText = computed<string>(() => renderMarkdown(props.chunk.text ?? '
 .markdown-body :deep(h4) {
   font-weight: 600; line-height: 1.3; margin: 10px 0 4px; color: var(--text);
 }
-.markdown-body :deep(h1) { font-size: 16px; }
-.markdown-body :deep(h2) { font-size: 15px; }
-.markdown-body :deep(h3) { font-size: 14px; }
-.markdown-body :deep(h4) { font-size: 13px; }
+.markdown-body :deep(h1) { font-size: calc(16px * var(--sessions-font-scale, 1)); }
+.markdown-body :deep(h2) { font-size: calc(15px * var(--sessions-font-scale, 1)); }
+.markdown-body :deep(h3) { font-size: calc(14px * var(--sessions-font-scale, 1)); }
+.markdown-body :deep(h4) { font-size: calc(13px * var(--sessions-font-scale, 1)); }
 
 .markdown-body :deep(p) { margin: 0 0 8px; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
@@ -80,14 +80,14 @@ const renderedText = computed<string>(() => renderMarkdown(props.chunk.text ?? '
 .markdown-body :deep(em) { font-style: italic; }
 
 .markdown-body :deep(code) {
-  font-family: var(--mono); font-size: 11.5px;
+  font-family: var(--mono); font-size: calc(11.5px * var(--sessions-font-scale, 1));
   background: rgba(0, 0, 0, 0.06); border-radius: 3px; padding: 1px 4px;
 }
 .markdown-body :deep(pre) {
   background: #2a1f14; border-radius: 6px; padding: 10px 12px; margin: 6px 0; overflow-x: auto;
 }
 .markdown-body :deep(pre > code) {
-  background: none; padding: 0; border-radius: 0; font-size: 11.5px; color: #e8d5bc; display: block;
+  background: none; padding: 0; border-radius: 0; font-size: calc(11.5px * var(--sessions-font-scale, 1)); color: #e8d5bc; display: block;
 }
 .markdown-body :deep(ul),
 .markdown-body :deep(ol) { padding-left: 20px; margin: 4px 0 8px; }
@@ -101,7 +101,7 @@ const renderedText = computed<string>(() => renderMarkdown(props.chunk.text ?? '
 
 /* System injection tags — muted pill */
 .markdown-body :deep(.sys-tag) {
-  display: inline-block; font-family: var(--mono); font-size: 10px;
+  display: inline-block; font-family: var(--mono); font-size: calc(10px * var(--sessions-font-scale, 1));
   color: var(--muted); background: rgba(122, 92, 58, 0.08);
   border: 1px solid var(--border); border-radius: 3px;
   padding: 1px 5px; margin: 1px 0; opacity: 0.75;
@@ -110,7 +110,7 @@ const renderedText = computed<string>(() => renderMarkdown(props.chunk.text ?? '
 /* System-injected content block — dimmed to distinguish from user-typed text */
 .markdown-body :deep(.sys-block) {
   opacity: 0.55;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--sessions-font-scale, 1));
   border-left: 2px solid var(--border);
   padding-left: 8px;
   margin: 4px 0 8px;

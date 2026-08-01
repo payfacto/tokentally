@@ -29,6 +29,9 @@ go test ./...
 go test ./internal/db/...
 go test ./internal/scanner/... -v -run TestScanDir
 
+# Run the Vue inspector's frontend tests (Vitest)
+npm test --prefix frontend/inspector
+
 # macOS — dev mode (live reload)
 wails dev
 

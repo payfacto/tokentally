@@ -10,12 +10,17 @@ import type { SessionMeta } from '../lib/export'
 import { fmt } from '../lib/fmt'
 import { api } from '../lib/api'
 import { KIND_LABELS, sevClass } from '../lib/findings'
+import { FONT_SCALE_STEP } from '../lib/fontScale'
+import { useFontScale } from '../composables/useFontScale'
+import FontScaleControls from '../components/FontScaleControls.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const range = ref<string>('7d')
+
+const { fontScale, fontScalePercent, stepFontScale, resetFontScale } = useFontScale('tt.sessionsFontScale')
 
 const selectedId = computed(() =>
   route.params.id ? decodeURIComponent(route.params.id as string) : ''
@@ -162,6 +167,13 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
             {{ fmt.tok(selectedSession.tokens) }} tokens · {{ fmt.date(selectedSession.started) }}
           </span>
           <span class="spacer" />
+          <FontScaleControls
+            class="font-scale-slot"
+            :percent="fontScalePercent"
+            @decrease="stepFontScale(-FONT_SCALE_STEP)"
+            @increase="stepFontScale(FONT_SCALE_STEP)"
+            @reset="resetFontScale"
+          />
           <span v-if="exportMsg" class="export-msg muted" style="font-size:11px;font-family:var(--mono)">{{ exportMsg }}</span>
           <button class="btn-export" title="Export as HTML" :disabled="!chunks.length" @click="exportHTML">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -174,7 +186,7 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
         <div v-else-if="!chunks.length" class="empty" style="padding:16px">
           <span>○</span> No turns found for this session.
         </div>
-        <div v-else class="inspector-scroll">
+        <div v-else class="inspector-scroll" :style="{ '--sessions-font-scale': fontScale }">
           <SessionInspector :chunks="chunks.slice(0, visibleCount)" />
           <div
             v-if="sessionFindings && (sessionFindings.grade || sessionFindings.findings.length)"
@@ -232,6 +244,7 @@ onUnmounted(() => { cancelReveal(); clearTimeout(exportTimer) })
 .mono { font-family: var(--mono); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .spacer { flex: 1; }
+.font-scale-slot { margin-right: 8px; }
 .btn-export { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; line-height: 1; transition: color 120ms, border-color 120ms; }
 .btn-export:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
 .btn-export:disabled { opacity: 0.35; cursor: default; }
