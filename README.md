@@ -20,7 +20,7 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 | **Projects** | Per-project token and cost summaries |
 | **Skills** | Breakdown of Claude Code skills invoked across sessions |
 | **Notes** | Browse and read markdown files from configured out-of-repo folders (ships with `~/.claude/handoffs` and `~/.claude/afk`); folder list is configurable in Settings |
-| **Tools** | Overage & auth status checker; RTK Token Savings dashboard (see below) |
+| **Tools** | Overage & auth status checker |
 | **Tips** | Rule-based suggestions: low cache hit rate, high output ratio, many short sessions, low read-to-edit ratio, unused MCP servers, long active session (suggests `/compact`) |
 | **Calculator** | Interactive token cost estimator — enter token counts and model to see cost instantly |
 | **Settings** | Plan, pricing models, currency, exchange rates, data retention, and Windows service management |
@@ -35,11 +35,6 @@ A desktop app for tracking Claude Code token usage, costs, and session history. 
 ### Cache analytics
 
 - Cache hit rate, 5-minute vs 1-hour cache breakdown, cache creation cost tracking
-
-### RTK Token Savings (Tools tab)
-
-- Runs `rtk gain` and displays a full graphical dashboard: summary stats (commands, input/output/saved tokens, exec time), circular efficiency meter, and a ranked "By Command" table with impact bars
-- Detects whether RTK is installed; links to [rtk-ai.app](https://www.rtk-ai.app/) if not
 
 ### Data & scanning
 

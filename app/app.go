@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -853,113 +852,6 @@ func (a *App) GetOverageInfo() (OverageInfo, error) {
 		}
 	}
 	return result, nil
-}
-
-// RTKCommandRow is one row from `rtk gain`'s "By Command" table.
-type RTKCommandRow struct {
-	Rank    int     `json:"rank"`
-	Command string  `json:"command"`
-	Count   int     `json:"count"`
-	Saved   string  `json:"saved"`
-	AvgPct  float64 `json:"avg_pct"`
-	Time    string  `json:"time"`
-	Impact  float64 `json:"impact"` // 0.0–1.0 fraction of filled █ blocks
-}
-
-// RTKGainResult holds parsed output from `rtk gain`.
-type RTKGainResult struct {
-	Efficiency    float64         `json:"efficiency"`
-	TotalCommands int             `json:"total_commands"`
-	InputTokens   string          `json:"input_tokens"`
-	OutputTokens  string          `json:"output_tokens"`
-	TokensSaved   string          `json:"tokens_saved"`
-	TotalExecTime string          `json:"total_exec_time"`
-	Commands      []RTKCommandRow `json:"commands,omitempty"`
-	RawOutput     []string        `json:"raw_output,omitempty"`
-	NotFound      bool            `json:"not_found,omitempty"`
-	Error         string          `json:"error,omitempty"`
-}
-
-var ansiEscRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-
-var (
-	rtkTotalCmdsRe = regexp.MustCompile(`Total commands:\s+(\d+)`)
-	rtkInputRe     = regexp.MustCompile(`Input tokens:\s+([\d.]+\s*[KMBkmb]?)`)
-	rtkOutputRe    = regexp.MustCompile(`Output tokens:\s+([\d.]+\s*[KMBkmb]?)`)
-	rtkSavedRe     = regexp.MustCompile(`Tokens saved:\s+([\d.]+\s*[KMBkmb]?)\s+\((\d+(?:\.\d+)?)%\)`)
-	rtkExecTimeRe  = regexp.MustCompile(`Total exec time:\s+(.+)`)
-	// Table row: "  1.  command name     count  saved   avg%   time  ██░░"
-	rtkTableRowRe = regexp.MustCompile(`^\s*(\d+)\.\s+(.+?)\s{2,}(\d+)\s+([\d.]+[KMBkmb]?)\s+([\d.]+)%\s+(\S+)\s+([█░]+)`)
-)
-
-// GetRTKGain runs `rtk gain` and returns fully-parsed token savings data.
-func (a *App) GetRTKGain() (RTKGainResult, error) {
-	cmd := exec.Command("rtk", "gain")
-	hideConsole(cmd)
-
-	out, err := cmd.CombinedOutput()
-	clean := ansiEscRe.ReplaceAllString(string(out), "")
-	lines := rtkSplitLines(clean)
-
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return RTKGainResult{NotFound: true}, nil
-		}
-		return RTKGainResult{Error: err.Error(), RawOutput: lines}, nil
-	}
-
-	result := RTKGainResult{RawOutput: lines}
-
-	for _, line := range lines {
-		switch {
-		case rtkTotalCmdsRe.MatchString(line):
-			m := rtkTotalCmdsRe.FindStringSubmatch(line)
-			fmt.Sscanf(m[1], "%d", &result.TotalCommands)
-		case rtkInputRe.MatchString(line):
-			m := rtkInputRe.FindStringSubmatch(line)
-			result.InputTokens = strings.TrimSpace(m[1])
-		case rtkOutputRe.MatchString(line):
-			m := rtkOutputRe.FindStringSubmatch(line)
-			result.OutputTokens = strings.TrimSpace(m[1])
-		case rtkSavedRe.MatchString(line):
-			m := rtkSavedRe.FindStringSubmatch(line)
-			result.TokensSaved = strings.TrimSpace(m[1])
-			fmt.Sscanf(m[2], "%f", &result.Efficiency)
-		case rtkExecTimeRe.MatchString(line):
-			m := rtkExecTimeRe.FindStringSubmatch(line)
-			result.TotalExecTime = strings.TrimSpace(m[1])
-		default:
-			if m := rtkTableRowRe.FindStringSubmatch(line); m != nil {
-				row := RTKCommandRow{
-					Command: strings.TrimSpace(m[2]),
-					Saved:   strings.TrimSpace(m[4]),
-					Time:    strings.TrimSpace(m[6]),
-				}
-				fmt.Sscanf(m[1], "%d", &row.Rank)
-				fmt.Sscanf(m[3], "%d", &row.Count)
-				fmt.Sscanf(m[5], "%f", &row.AvgPct)
-				impactStr := m[7]
-				filled := strings.Count(impactStr, "█")
-				total := len([]rune(impactStr))
-				if total > 0 {
-					row.Impact = float64(filled) / float64(total)
-				}
-				result.Commands = append(result.Commands, row)
-			}
-		}
-	}
-
-	return result, nil
-}
-
-func rtkSplitLines(s string) []string {
-	var out []string
-	for l := range strings.SplitSeq(s, "\n") {
-		if l = strings.TrimRight(l, "\r"); l != "" {
-			out = append(out, l)
-		}
-	}
-	return out
 }
 
 func (a *App) getPlan() string {
