@@ -61,25 +61,28 @@ jobs:
             libfuse2t64 \
             file
 
-      # wails3's standalone `generate` subcommands (syso on Windows, appimage
-      # on Linux) need the CLI on PATH. Not needed on macOS - bundle.sh only
-      # uses plain go build/sed/cp.
-      # Needed on every platform, not just Windows/Linux: bindings generation
-      # below (the App.vue import of ./bindings/tokentally/app) requires it
-      # too, not just syso/appimage generation.
+      # wails3's standalone `generate` subcommands need the CLI on PATH: syso
+      # on Windows, appimage on Linux, and bindings on every platform (the
+      # App.vue import of ./bindings/tokentally/app).
       - name: Install Wails v3 CLI
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.5
 
-      # frontend/inspector/src/bindings/ (Go<->TS bindings) and
-      # frontend/web/app.bundle.js + app.css are all gitignored, //go:embed-ed
-      # (the latter) into the Go binary, and were previously generated/
-      # rebuilt transparently by `wails build`. Must run before any of the
-      # platform Build steps below.
+      # frontend/inspector/src/bindings/ is gitignored generated output, must
+      # run from the repo root (wails3 reads the Go module from `.`).
+      - name: Generate bindings
+        run: wails3 generate bindings -d frontend/inspector/src/bindings -ts -i ./...
+
+      # frontend/web/app.bundle.js + app.css are gitignored, //go:embed-ed
+      # into the Go binary, and were previously rebuilt transparently by
+      # `wails build`. Must run before any of the platform Build steps below.
+      # Uses working-directory (not `npm --prefix`) - `--prefix` doesn't
+      # reliably resolve frontend/inspector/package.json under the Windows
+      # runner's pwsh shell.
       - name: Build frontend
+        working-directory: frontend/inspector
         run: |
-          wails3 generate bindings -d frontend/inspector/src/bindings -ts -i ./...
-          npm install --prefix frontend/inspector
-          npm run build --prefix frontend/inspector
+          npm install
+          npm run build
 
       # CFBundleVersion/.syso fixed version/manifest assemblyIdentity all
       # need a numeric X.Y.Z - git describe's "v1.2.3-4-gabcdef-dirty" isn't
