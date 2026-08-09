@@ -11,9 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"tokentally/app"
 	"tokentally/internal/db"
 	"tokentally/internal/version"
@@ -115,36 +114,43 @@ func runUI(dbPath, projectsDir string) {
 
 	p := loadPricing()
 	a := app.New(conn, projectsDir, p)
-	app.IconBytes = iconICO
 
 	assets, err := fs.Sub(rawAssets, "frontend")
 	if err != nil {
 		log.Fatalf("assets: %v", err)
 	}
 
-	// systray locks its own OS thread internally, so it can run in a goroutine.
-	// Wails stays on the main goroutine for the most stable WebView2 message loop.
-	go a.StartTray()
-
-	if err := wails.Run(&options.App{
-		Title:             "TokenTally",
-		Width:             windowWidth,
-		Height:            windowHeight,
-		MinWidth:          windowMinWidth,
-		MinHeight:         windowMinHeight,
-		BackgroundColour:  &options.RGBA{R: bgR, G: bgG, B: bgB, A: 255},
-		HideWindowOnClose: true, // keep runtime alive so tray can re-show the window
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	wailsApp := application.New(application.Options{
+		Name:     "TokenTally",
+		Services: []application.Service{application.NewService(a)},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
 		},
-		OnStartup:  a.Startup,
-		OnDomReady: a.SetWindowIcon,
-		Bind:       []any{a},
-	}); err != nil {
+	})
+
+	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "TokenTally",
+		Width:            windowWidth,
+		Height:           windowHeight,
+		MinWidth:         windowMinWidth,
+		MinHeight:        windowMinHeight,
+		BackgroundColour: application.NewRGBA(bgR, bgG, bgB, 255),
+	})
+
+	// Hide instead of quit on close so the tray can re-show the window.
+	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		window.Hide()
+	})
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(e *application.WindowEvent) {
+		a.SetWindowIcon()
+	})
+
+	a.SetupTray(wailsApp, window, iconICO)
+
+	if err := wailsApp.Run(); err != nil {
 		log.Printf("wails: %v", err)
 	}
-	// Wails exited (Ctrl+C, runtime.Quit, or error); kill the systray goroutine too.
-	os.Exit(0)
 }
 
 func addToStartup() {

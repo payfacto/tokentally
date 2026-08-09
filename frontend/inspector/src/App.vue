@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue'
 import { RouterView, RouterLink } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { fmt } from './lib/fmt'
+import { App } from './bindings/tokentally/app'
+import { Events } from '@wailsio/runtime'
 
 const store = useAppStore()
 
@@ -17,7 +19,7 @@ onMounted(async () => {
   await store.boot()
 
   try {
-    version.value = await window.go.app.App.GetVersion()
+    version.value = await App.GetVersion()
   } catch { /* not in Wails env */ }
 
   if (store.pricing) {
@@ -30,12 +32,12 @@ onMounted(async () => {
   }
 
   try {
-    window.runtime.EventsOn('scan', () => store.recordScan())
+    Events.On('scan', () => store.recordScan())
   } catch { /* not in Wails env */ }
 })
 
 async function saveFirstRun() {
-  await window.go.app.App.SetPlan(firstRunPlan.value)
+  await App.SetPlan(firstRunPlan.value)
   localStorage.setItem('td.plan-set', '1')
   store.plan = firstRunPlan.value
   showFirstRun.value = false

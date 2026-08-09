@@ -3,7 +3,6 @@
 package app
 
 import (
-	"context"
 	"syscall"
 	"unsafe"
 )
@@ -22,8 +21,8 @@ var (
 // by rsrc_windows_amd64.syso via go-winres) to the Wails main window via
 // WM_SETICON. Wails' WebView2 host registers a window class with a null hIcon,
 // so Windows falls back to the system default for the title bar even though the
-// PE resource is correct. Sending WM_SETICON from OnDomReady fixes this.
-func (a *App) SetWindowIcon(_ context.Context) {
+// PE resource is correct. Sending WM_SETICON on WindowRuntimeReady fixes this.
+func (a *App) SetWindowIcon() {
 	hInst, _, _ := _getModuleHandle.Call(0)
 	if hInst == 0 {
 		return

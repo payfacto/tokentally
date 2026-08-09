@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { Pricing, PlanResponse } from '../composables/useWails'
+import { App } from '../bindings/tokentally/app'
 
 const SHOW_LMSGO_KEY = 'tt.showLmsgo'
 
@@ -33,7 +34,9 @@ export const useAppStore = defineStore('app', {
       }
     },
     async boot() {
-      const resp = await window.go.app.App.GetPlan()
+      // GetPlan's generated v3 type is a bare map (Go returns map[string]any);
+      // cast to the shape this app actually relies on, same as api.ts's convention.
+      const resp = (await App.GetPlan()) as unknown as PlanResponse
       this.plan = resp.plan
       this.pricing = resp.pricing
       this.currency = resp.currency || 'CAD'

@@ -16,9 +16,19 @@ import (
 	"tokentally/internal/db"
 	"tokentally/internal/version"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+)
+
+const (
+	windowWidth     = 1100
+	windowHeight    = 700
+	windowMinWidth  = 800
+	windowMinHeight = 600
+
+	bgR = 13
+	bgG = 13
+	bgB = 26
 )
 
 //go:embed all:frontend
@@ -111,25 +121,35 @@ func runUI(dbPath, projectsDir string) {
 		log.Fatalf("assets: %v", err)
 	}
 
-	// Start tray in a goroutine
-	go a.StartTray()
-
-	if err := wails.Run(&options.App{
-		Title:             "TokenTally",
-		Width:             1100,
-		Height:            700,
-		MinWidth:          800,
-		MinHeight:         600,
-		BackgroundColour:  &options.RGBA{R: 13, G: 13, B: 26, A: 255},
-		HideWindowOnClose: true,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	wailsApp := application.New(application.Options{
+		Name:     "TokenTally",
+		Services: []application.Service{application.NewService(a)},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
 		},
-		OnStartup:  a.Startup,
-		OnDomReady: a.SetWindowIcon,
-		Bind:       []any{a},
-	}); err != nil {
+	})
+
+	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "TokenTally",
+		Width:            windowWidth,
+		Height:           windowHeight,
+		MinWidth:         windowMinWidth,
+		MinHeight:        windowMinHeight,
+		BackgroundColour: application.NewRGBA(bgR, bgG, bgB, 255),
+	})
+
+	// Hide instead of quit on close so the tray can re-show the window.
+	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		window.Hide()
+	})
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(e *application.WindowEvent) {
+		a.SetWindowIcon()
+	})
+
+	a.SetupTray(wailsApp, window, nil)
+
+	if err := wailsApp.Run(); err != nil {
 		log.Printf("wails: %v", err)
 	}
-	os.Exit(0)
 }
