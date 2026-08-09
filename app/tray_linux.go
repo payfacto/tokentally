@@ -3,36 +3,32 @@
 package app
 
 import (
-	"os"
-
-	"github.com/getlantern/systray"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// StartTray initializes the system tray on Linux.
-func (a *App) StartTray() {
-	systray.Run(a.onTrayReady, func() {})
-}
-
-func (a *App) onTrayReady() {
-	systray.SetTooltip("TokenTally")
-
-	mOpen := systray.AddMenuItem("Open Dashboard", "Open the TokenTally window")
-	mScan := systray.AddMenuItem("Scan Now", "Trigger an immediate scan")
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("Quit TokenTally", "Exit TokenTally")
-
-	for {
-		select {
-		case <-mOpen.ClickedCh:
-			if a.ctx != nil {
-				runtime.WindowShow(a.ctx)
-				runtime.WindowUnminimise(a.ctx)
-			}
-		case <-mScan.ClickedCh:
-			go a.ScanNow() //nolint:errcheck
-		case <-mQuit.ClickedCh:
-			os.Exit(0)
-		}
+// SetupTray wires the Linux notification-area icon, tooltip, and menu.
+// Must be called before wailsApp.Run() so the tray exists once the event
+// loop starts; v3's system tray is native, so no manual OS-thread handling
+// is needed here (unlike the old getlantern/systray + goroutine dance).
+func (a *App) SetupTray(wailsApp *application.App, window *application.WebviewWindow, iconBytes []byte) {
+	tray := wailsApp.SystemTray.New()
+	if len(iconBytes) > 0 {
+		tray.SetIcon(iconBytes)
 	}
+	tray.SetTooltip("TokenTally")
+
+	menu := wailsApp.NewMenu()
+	menu.Add("Open Dashboard").OnClick(func(_ *application.Context) {
+		window.Show()
+		window.UnMinimise()
+		window.Focus()
+	})
+	menu.Add("Scan Now").OnClick(func(_ *application.Context) {
+		go a.ScanNow() //nolint:errcheck
+	})
+	menu.AddSeparator()
+	menu.Add("Quit TokenTally").OnClick(func(_ *application.Context) {
+		wailsApp.Quit()
+	})
+	tray.SetMenu(menu)
 }
