@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=TokenTally
+Exec=tokentally
+Icon=tokentally
+Categories=Utility;
+Comment=Token usage tracker for Claude Code
+Terminal=false
+Keywords=claude;tokens;usage;dashboard;
+Version=1.0
+GenericName=Token Usage Tracker
+StartupNotify=false

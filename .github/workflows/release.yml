@@ -22,13 +22,10 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            platform: linux/amd64
             archive: tokentally-linux-amd64.tar.gz
           - os: windows-latest
-            platform: windows/amd64
             archive: tokentally-windows-amd64.zip
           - os: macos-latest
-            platform: darwin/arm64
             archive: tokentally-darwin-arm64.zip
 
     runs-on: ${{ matrix.os }}
@@ -46,47 +43,97 @@ jobs:
         with:
           node-version: '20'
 
+      # Wails v2's `wails build` CLI used to do this (and the packaging below)
+      # silently. v3 has no such CLI (wails3 build/dev need a Taskfile scaffold
+      # this repo doesn't have) - see
+      # .context/specs/2026-08-09-wails-v3-build-packaging-design.md.
       - name: Install Linux build dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
             pkg-config \
             build-essential \
-            xvfb
+            dpkg-dev \
+            fuse \
+            libfuse2t64 \
+            file
 
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      # wails3's standalone `generate` subcommands (syso on Windows, appimage
+      # on Linux) need the CLI on PATH. Not needed on macOS - bundle.sh only
+      # uses plain go build/sed/cp.
+      - name: Install Wails v3 CLI
+        if: matrix.os != 'macos-latest'
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.5
 
-      - name: Install frontend dependencies
+      # frontend/web/app.bundle.js and app.css are gitignored, //go:embed-ed
+      # into the Go binary, and were previously rebuilt transparently by
+      # `wails build`. Must run before any of the platform Build steps below.
+      - name: Build frontend
         working-directory: frontend/inspector
-        run: npm install
+        run: |
+          npm install
+          npm run build
 
+      # CFBundleVersion/.syso fixed version/manifest assemblyIdentity all
+      # need a numeric X.Y.Z - git describe's "v1.2.3-4-gabcdef-dirty" isn't
+      # one. Same derivation as the Makefile's NUMERIC_VERSION.
       - name: Resolve version
         id: version
         shell: bash
-        run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
-
-      - name: Build
-        shell: bash
         run: |
-          # Ubuntu 24.04 ships webkit2gtk-4.1; Wails v2 defaults to 4.0.
-          # The webkit2_41 build tag selects the 4.1 cgo bindings.
-          # xvfb-run is required on Linux: wailsbindings is a GTK app that needs a display.
-          TAGS=""
-          RUNNER=""
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            TAGS="-tags webkit2_41"
-            RUNNER="xvfb-run --auto-servernum"
-          fi
-          $RUNNER wails build -platform ${{ matrix.platform }} $TAGS -ldflags "-X 'tokentally/internal/version.Version=${{ steps.version.outputs.version }}'"
+          v=$(git describe --tags --always --dirty)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          n=$(printf '%s' "$v" | sed -E 's/^v//; s/[-+].*//')
+          echo "$n" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || n="0.0.0"
+          echo "numeric_version=$n" >> "$GITHUB_OUTPUT"
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NUMERIC_VERSION: ${{ steps.version.outputs.numeric_version }}
+        run: build/darwin/bundle.sh "$VERSION" "$NUMERIC_VERSION"
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NUMERIC_VERSION: ${{ steps.version.outputs.numeric_version }}
+        run: |
+          info=$(mktemp)
+          sed -e "s|__VERSION__|$VERSION|g" -e "s|__NUMERIC_VERSION__|$NUMERIC_VERSION|g" build/windows/info.json > "$info"
+          manifest=$(mktemp)
+          sed -e "s|__NUMERIC_VERSION__|$NUMERIC_VERSION|g" build/windows/wails.exe.manifest > "$manifest"
+          wails3 generate syso -icon build/windows/icon.ico -info "$info" -manifest "$manifest" -out wails_windows_amd64.syso -arch amd64
+          rm -f "$info" "$manifest"
+          GOOS=windows GOARCH=amd64 go build -ldflags "-X 'tokentally/internal/version.Version=$VERSION'" -o build/bin/tokentally.exe .
+
+      # Split from the AppImage step below so a failure there (unproven
+      # tooling, FUSE availability in CI) can't take down this working,
+      # already-released tar.gz path. AppImage is additive, not a
+      # replacement - see the design spec's scope section.
+      - name: Build (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: GOOS=linux GOARCH=amd64 go build -ldflags "-X 'tokentally/internal/version.Version=$VERSION'" -o build/bin/tokentally .
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: tar -czvf ${{ matrix.archive }} -C build/bin tokentally
+
+      - name: Build AppImage (Linux)
+        id: appimage
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: |
+          cp build/appicon.png build/linux/tokentally.png
+          wails3 generate appimage -binary build/bin/tokentally -desktopfile build/linux/tokentally.desktop -icon build/linux/tokentally.png -outputdir build/bin
+          mv build/bin/*.AppImage tokentally-linux-amd64.AppImage
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
@@ -104,6 +151,14 @@ jobs:
           path: ${{ matrix.archive }}
           retention-days: 14
 
+      - name: Upload AppImage artifact
+        if: matrix.os == 'ubuntu-latest' && steps.appimage.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokentally-linux-amd64.AppImage
+          path: tokentally-linux-amd64.AppImage
+          retention-days: 14
+
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -116,6 +171,12 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
             || true
           gh release upload "$GITHUB_REF_NAME" "${{ matrix.archive }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Attach AppImage to GitHub Release
+        if: matrix.os == 'ubuntu-latest' && steps.appimage.outcome == 'success' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "tokentally-linux-amd64.AppImage" --repo "$GITHUB_REPOSITORY" --clobber
 
   brew-tap:
     needs: build

@@ -69,7 +69,7 @@ Download `TokenTally.app` and open it, or build from source (see below).
 
 ### Linux
 
-Download the `tokentally` binary and run it. Install the systemd user service and autostart entry with:
+Download the `tokentally` binary (or the `.AppImage`, if you'd rather not manage a systemd service) and run it. Install the systemd user service and autostart entry with:
 
 ```
 ./tokentally --install
@@ -137,7 +137,7 @@ Edit `pricing.json` in the same directory as the binary and reload the dashboard
 
 ## Building from source
 
-Prerequisites: [Go 1.22+](https://go.dev/dl/), [Node.js 18+](https://nodejs.org/), [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation).
+Prerequisites: [Go 1.25+](https://go.dev/dl/), [Node.js 18+](https://nodejs.org/), and the Wails v3 CLI (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.5`) - used only for one-off asset generation (icons/`.syso`/`.desktop`/AppImage), not for building or dev mode. Building itself is plain `go build`, wrapped by the `Makefile` targets below.
 
 ```bash
 git clone <repo-url>
@@ -149,25 +149,22 @@ npm install --prefix frontend/inspector
 # Run tests (any platform)
 go test ./...
 
-# macOS
-wails build -platform darwin/arm64   # Apple Silicon
-wails build -platform darwin/amd64   # Intel
+# Quick native binary, no packaging (any platform)
+go build .
+
+# macOS - produces build/bin/TokenTally.app
+make build-darwin
 open build/bin/TokenTally.app
 
-# macOS — dev mode (live reload)
-wails dev
+# Windows - produces build/bin/tokentally.exe (needs the wails3 CLI for .syso generation)
+make build-windows
 
-# Windows
-wails build -platform windows/amd64
-
-# Windows — faster build (skips binding generation)
-wails build -platform windows/amd64 -skipbindings
-
-# Linux
-wails build -platform linux/amd64
+# Linux - produces build/bin/tokentally and build/bin/tokentally-<arch>.AppImage
+# (AppImage generation needs libgtk-4-dev, libwebkitgtk-6.0-dev, dpkg-dev, fuse/libfuse2, file)
+make build-linux
 ```
 
-Output: `build/bin/TokenTally.app` (macOS), `build/bin/tokentally.exe` (Windows), or `build/bin/tokentally` (Linux).
+Output: `build/bin/TokenTally.app` (macOS), `build/bin/tokentally.exe` (Windows), or `build/bin/tokentally` + `build/bin/tokentally-<arch>.AppImage` (Linux).
 
 > **macOS note:** The system tray and background service are not available on macOS. Closing the window quits the app.
 
@@ -175,7 +172,7 @@ Output: `build/bin/TokenTally.app` (macOS), `build/bin/tokentally.exe` (Windows)
 
 ## Version info
 
-TokenTally embeds a version string via Go's `-ldflags -X`. The variable lives at `tokentally/internal/version.Version` and defaults to `dev` for plain `go build` / `wails build` invocations.
+TokenTally embeds a version string via Go's `-ldflags -X`. The variable lives at `tokentally/internal/version.Version` and defaults to `dev` for a plain `go build` with no `-ldflags`.
 
 Check the compiled version:
 
@@ -191,10 +188,10 @@ The version is also shown in the topbar header next to the **TokenTally** brand.
 The `Makefile` derives the version from the nearest git tag:
 
 ```bash
-make build           # -> build/bin/<binary>, version from `git describe --tags --always --dirty`
-make build-windows   # cross-compile windows/amd64
-make build-darwin    # cross-compile darwin/arm64
-make build-linux     # cross-compile linux/amd64
+make build           # -> whichever of the three below matches the host OS
+make build-windows   # -> build/bin/tokentally.exe; cross-compiles fine from any host (pure Go + a generated .syso)
+make build-darwin    # -> build/bin/TokenTally.app; must run on macOS (the bundle script shells out to `go build` natively)
+make build-linux     # -> build/bin/tokentally + .AppImage; must run on Linux (cgo against GTK4/WebKit)
 make test            # go test ./...
 make clean           # removes build/bin
 make version         # prints the resolved VERSION
@@ -206,11 +203,7 @@ Override the version explicitly if needed:
 make build VERSION=v1.2.3
 ```
 
-Equivalent raw `wails build` command (what `make build` runs under the hood):
-
-```bash
-wails build -ldflags "-X 'tokentally/internal/version.Version=v1.2.3'"
-```
+Each target's version stamp (`-ldflags -X 'tokentally/internal/version.Version=...'`) and, for macOS/Windows, the bundled `Info.plist`/`.syso` resource version are all derived from the same `VERSION` value - see [`build/darwin/bundle.sh`](build/darwin/bundle.sh) and the `build-windows` target in the [`Makefile`](Makefile) for the exact commands.
 
 ### Cutting a release
 
@@ -244,7 +237,7 @@ Checklist:
    git push origin v1.2.3
    ```
 
-5. Watch the build in the GitHub mirror's Actions tab. When it goes green a new entry appears under Releases with `tokentally-windows-amd64.zip`, `tokentally-darwin-arm64.zip`, and `tokentally-linux-amd64.tar.gz` attached. A second `brew-tap` job then updates `payfacto/homebrew-tap` automatically.
+5. Watch the build in the GitHub mirror's Actions tab. When it goes green a new entry appears under Releases with `tokentally-windows-amd64.zip`, `tokentally-darwin-arm64.zip`, `tokentally-linux-amd64.tar.gz`, and `tokentally-linux-amd64.AppImage` attached. A second `brew-tap` job then updates `payfacto/homebrew-tap` automatically.
 
 6. Verify the published Homebrew cask:
 
