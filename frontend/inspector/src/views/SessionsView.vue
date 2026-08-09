@@ -8,6 +8,7 @@ import type { Chunk, Session } from '../lib/types'
 import { generateSessionHTML } from '../lib/export'
 import type { SessionMeta } from '../lib/export'
 import { fmt } from '../lib/fmt'
+import { App } from '../bindings/tokentally/app'
 import { api } from '../lib/api'
 import { KIND_LABELS, sevClass } from '../lib/findings'
 import { FONT_SCALE_STEP } from '../lib/fontScale'
@@ -54,7 +55,7 @@ async function fetchBadges(list: Session[]) {
   if (!list.length) { badges.value = {}; return }
   try {
     const ids = list.map((s) => s.session_id)
-    const result = await window.go.app.App.GetSessionBadges(ids)
+    const result = await App.GetSessionBadges(ids)
     badges.value = result ?? {}
   } catch (err) {
     console.error('[findings] badges fetch:', err)
@@ -95,7 +96,7 @@ async function exportHTML() {
   const dateStr = fmt.date(selectedSession.value?.started ?? '')
   const idPrefix = selectedId.value.slice(0, 8)
   const filename = `session-${idPrefix}-${dateStr}.html`
-  const path = await window.go.app.App.SaveHTMLExport(html, filename)
+  const path = await App.SaveHTMLExport(html, filename)
   if (path) {
     clearTimeout(exportTimer)
     exportMsg.value = 'Saved'

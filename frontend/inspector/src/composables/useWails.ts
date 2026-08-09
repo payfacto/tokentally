@@ -1,5 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 import type { Chunk, Session } from '../lib/types'
+import { App } from '../bindings/tokentally/app'
 
 export interface OverviewTotals {
   sessions: number; turns: number; input_tokens: number; output_tokens: number
@@ -52,9 +53,11 @@ export function useSessionList(range: Ref<string>, project?: Ref<string>): {
     try {
       const since = rangeToSince(range.value)
       const slug = project?.value || ''
+      // These v3 bindings return a generic map shape (Go's return type is
+      // map[string]any); cast to the concrete Session shape this app relies on.
       data.value = slug
-        ? (await window.go.app.App.GetSessionsByProject(200, slug, since, '')) ?? []
-        : (await window.go.app.App.GetSessions(200, since, '')) ?? []
+        ? ((await App.GetSessionsByProject(200, slug, since, '')) as unknown as Session[] | null) ?? []
+        : ((await App.GetSessions(200, since, '')) as unknown as Session[] | null) ?? []
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -94,7 +97,9 @@ export function useSessionChunks(id: Ref<string>): {
     error.value = null
     visibleCount.value = 20
     try {
-      data.value = (await window.go.app.App.GetSessionChunks(id.value)) ?? []
+      // GetSessionChunks' generated model has a bare `type: string` field;
+      // cast to the narrower Chunk union this app's rendering code switches on.
+      data.value = ((await App.GetSessionChunks(id.value)) as unknown as Chunk[] | null) ?? []
       revealProgressively(data.value.length)
     } catch (e) {
       error.value = String(e)

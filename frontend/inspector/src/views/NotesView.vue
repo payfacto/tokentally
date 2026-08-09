@@ -7,6 +7,7 @@ import { copyMarkdown } from '../lib/clipboard'
 import { FONT_SCALE_STEP } from '../lib/fontScale'
 import { useFontScale } from '../composables/useFontScale'
 import FontScaleControls from '../components/FontScaleControls.vue'
+import { App } from '../bindings/tokentally/app'
 
 const POLL_INTERVAL_MS = 15000
 
@@ -41,7 +42,7 @@ function formatSize(bytes: number): string {
 
 async function fetchFolders() {
   try {
-    folders.value = await window.go.app.App.GetMarkdownFolders()
+    folders.value = await App.GetMarkdownFolders()
   } catch (err) {
     console.error('[notes] fetchFolders:', err)
   }
@@ -49,7 +50,7 @@ async function fetchFolders() {
 
 async function fetchFiles() {
   try {
-    const next = await window.go.app.App.ListMarkdownFiles()
+    const next = await App.ListMarkdownFiles()
 
     // If the open file changed on disk (e.g. a handoff got appended to),
     // refetch its content so the reader stays live.
@@ -77,7 +78,7 @@ async function loadContent(file: MarkdownFile) {
   const requestId = ++loadRequestId
   loadError.value = ''
   try {
-    const text = await window.go.app.App.ReadMarkdownFile(file.full_path)
+    const text = await App.ReadMarkdownFile(file.full_path)
     if (requestId !== loadRequestId) return
     content.value = text
   } catch (err) {
@@ -96,7 +97,7 @@ async function copyFile(file: MarkdownFile, e: MouseEvent) {
   if (!(e.currentTarget instanceof HTMLElement)) return
   const btn = e.currentTarget
   try {
-    const text = await window.go.app.App.ReadMarkdownFile(file.full_path)
+    const text = await App.ReadMarkdownFile(file.full_path)
     await copyMarkdown(text, btn)
   } catch (err) {
     console.error('[notes] copyFile:', err)

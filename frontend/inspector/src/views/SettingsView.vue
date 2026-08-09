@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { fmt } from '../lib/fmt'
 import { useAppStore } from '../stores/app'
 import type { ModelRate, PlanEntry, MarkdownFolder } from '../composables/useWails'
+import { App } from '../bindings/tokentally/app'
 
 const store = useAppStore()
 
@@ -74,13 +75,13 @@ function flash(msgRef: { value: string }, text: string, color = 'var(--good)', d
 
 async function loadAll() {
   const [planResp, m, p, r, key, days, folders] = await Promise.all([
-    window.go.app.App.GetPlan(),
-    window.go.app.App.GetPricingModels(),
-    window.go.app.App.GetPricingPlans(),
-    window.go.app.App.GetExchangeRates(),
-    window.go.app.App.GetExchangeApiKey(),
-    window.go.app.App.GetRetentionDays(),
-    window.go.app.App.GetMarkdownFolders(),
+    App.GetPlan(),
+    App.GetPricingModels(),
+    App.GetPricingPlans(),
+    App.GetExchangeRates(),
+    App.GetExchangeApiKey(),
+    App.GetRetentionDays(),
+    App.GetMarkdownFolders(),
   ])
   selectedPlan.value = planResp.plan || 'api'
   currency.value = planResp.currency || 'CAD'
@@ -103,10 +104,10 @@ async function addMarkdownFolder() {
     return
   }
   try {
-    await window.go.app.App.AddMarkdownFolder(path, label)
+    await App.AddMarkdownFolder(path, label)
     newFolderPath.value = ''
     newFolderLabel.value = ''
-    markdownFolders.value = await window.go.app.App.GetMarkdownFolders()
+    markdownFolders.value = await App.GetMarkdownFolders()
   } catch (e: unknown) {
     folderMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))
   }
@@ -114,12 +115,12 @@ async function addMarkdownFolder() {
 
 async function deleteMarkdownFolder(path: string) {
   if (!confirm(`Stop browsing "${path}" in the Notes tab?`)) return
-  await window.go.app.App.DeleteMarkdownFolder(path)
-  markdownFolders.value = await window.go.app.App.GetMarkdownFolders()
+  await App.DeleteMarkdownFolder(path)
+  markdownFolders.value = await App.GetMarkdownFolders()
 }
 
 async function savePlan() {
-  await window.go.app.App.SetPlan(selectedPlan.value)
+  await App.SetPlan(selectedPlan.value)
   store.plan = selectedPlan.value
   flash(planMsg, 'Saved.')
 }
@@ -129,23 +130,23 @@ function onCurrencyChange() {
 }
 
 async function saveCurrency() {
-  await window.go.app.App.SetCurrency(currency.value)
-  await window.go.app.App.SetExchangeRate(currency.value, exchangeRate.value)
+  await App.SetCurrency(currency.value)
+  await App.SetExchangeRate(currency.value, exchangeRate.value)
   store.currency = currency.value
   store.exchangeRate = exchangeRate.value
   flash(currencyMsg, 'Saved.')
 }
 
 async function saveApiKey() {
-  await window.go.app.App.SetExchangeApiKey(apiKey.value.trim())
+  await App.SetExchangeApiKey(apiKey.value.trim())
   flash(ratesMsg, 'API key saved.')
 }
 
 async function refreshRates() {
   ratesMsg.value = 'Fetching live rates…'
   try {
-    if (apiKey.value.trim()) await window.go.app.App.SetExchangeApiKey(apiKey.value.trim())
-    const updated = await window.go.app.App.RefreshExchangeRates()
+    if (apiKey.value.trim()) await App.SetExchangeApiKey(apiKey.value.trim())
+    const updated = await App.RefreshExchangeRates()
     Object.assign(rates.value, updated)
     if (updated[currency.value] != null) {
       exchangeRate.value = +updated[currency.value].toFixed(4)
@@ -175,23 +176,23 @@ function openEditModel(m: ModelRate) {
 async function saveModel() {
   const mm = modelModal.value
   if (!mm.model_name.trim()) return
-  await window.go.app.App.UpsertPricingModel(
+  await App.UpsertPricingModel(
     mm.model_name.trim(), mm.tier.trim(),
     mm.input, mm.output, mm.cache_read, mm.cache_create_5m, mm.cache_create_1h,
   )
   modelModal.value.show = false
-  models.value = await window.go.app.App.GetPricingModels()
+  models.value = await App.GetPricingModels()
 }
 
 async function deleteModel(name: string) {
   if (!confirm(`Delete model "${name}"?`)) return
-  await window.go.app.App.DeletePricingModel(name)
-  models.value = await window.go.app.App.GetPricingModels()
+  await App.DeletePricingModel(name)
+  models.value = await App.GetPricingModels()
 }
 
 async function resetPricing() {
   if (!confirm('Reset all model rates and plans to the built-in defaults? This cannot be undone.')) return
-  await window.go.app.App.ResetPricingToDefaults()
+  await App.ResetPricingToDefaults()
   await loadAll()
 }
 
@@ -206,20 +207,20 @@ function openEditPlan(p: PlanEntry) {
 async function savePlanEntry() {
   const pm = planModal.value
   if (!pm.plan_key.trim() || !pm.label.trim()) return
-  await window.go.app.App.UpsertPricingPlan(pm.plan_key.trim(), pm.label.trim(), pm.monthly)
+  await App.UpsertPricingPlan(pm.plan_key.trim(), pm.label.trim(), pm.monthly)
   planModal.value.show = false
-  plans.value = (await window.go.app.App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
+  plans.value = (await App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
 }
 
 async function deletePlan(key: string) {
   if (!confirm(`Delete plan "${key}"?`)) return
-  await window.go.app.App.DeletePricingPlan(key)
-  plans.value = (await window.go.app.App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
+  await App.DeletePricingPlan(key)
+  plans.value = (await App.GetPricingPlans()).sort((a, b) => a.label.localeCompare(b.label))
 }
 
 async function refreshServiceStatus() {
   try {
-    const status = await window.go.app.App.GetServiceStatus()
+    const status = await App.GetServiceStatus()
     if (!status.installed) {
       serviceStatus.value = '● Not installed'
     } else {
@@ -231,19 +232,19 @@ async function refreshServiceStatus() {
 }
 
 async function installService() {
-  await window.go.app.App.InstallService().catch(() => {})
+  await App.InstallService().catch(() => {})
   timers.push(setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY))
 }
 
 async function uninstallService() {
-  await window.go.app.App.UninstallService().catch(() => {})
+  await App.UninstallService().catch(() => {})
   timers.push(setTimeout(refreshServiceStatus, SERVICE_STATUS_DELAY))
 }
 
 async function scanNow() {
   scanMsg.value = 'Scanning…'
   try {
-    const result = await window.go.app.App.ScanNow()
+    const result = await App.ScanNow()
     scanMsg.value = result.Messages > 0 || result.Files > 0
       ? `Scanned ${result.Messages} messages in ${result.Files} files`
       : 'Nothing new'
@@ -255,7 +256,7 @@ async function scanNow() {
 
 async function saveRetention() {
   try {
-    await window.go.app.App.SetRetentionDays(retentionDays.value)
+    await App.SetRetentionDays(retentionDays.value)
     flash(retentionMsg, retentionDays.value > 0
       ? `Saved — auto-purge every scan (>${retentionDays.value} days)`
       : 'Saved — retention off')
@@ -269,7 +270,7 @@ async function purgeNow() {
   if (!confirm(`Delete all TokenTally data older than ${retentionDays.value} days? This cannot be undone.`)) return
   purgeMsg.value = 'Purging…'
   try {
-    const deleted = await window.go.app.App.PurgeOlderThan(retentionDays.value)
+    const deleted = await App.PurgeOlderThan(retentionDays.value)
     purgeMsg.value = deleted > 0 ? `Deleted ${deleted.toLocaleString()} messages` : 'Nothing to purge'
   } catch (e: unknown) {
     purgeMsg.value = 'Error: ' + (e instanceof Error ? e.message : String(e))

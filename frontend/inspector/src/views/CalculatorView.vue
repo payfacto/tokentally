@@ -4,6 +4,7 @@ import { encode, decode } from 'gpt-tokenizer'
 import { useAppStore } from '../stores/app'
 import { fmt } from '../lib/fmt'
 import type { ModelRate } from '../composables/useWails'
+import { App } from '../bindings/tokentally/app'
 
 const store = useAppStore()
 const text = ref('')
@@ -15,7 +16,7 @@ const fileError = ref('')
 
 onMounted(async () => {
   try {
-    models.value = await window.go.app.App.GetPricingModels()
+    models.value = await App.GetPricingModels()
   } catch { /* not in Wails env */ }
   document.addEventListener('mousedown', hideCtxMenu)
 })

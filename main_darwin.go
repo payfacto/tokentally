@@ -11,9 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"tokentally/app"
 	"tokentally/internal/db"
 	"tokentally/internal/version"
@@ -60,19 +58,24 @@ func runUI(dbPath, projectsDir string) {
 		log.Fatalf("assets: %v", err)
 	}
 
-	if err := wails.Run(&options.App{
+	wailsApp := application.New(application.Options{
+		Name:     "TokenTally",
+		Services: []application.Service{application.NewService(a)},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+	})
+
+	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "TokenTally",
 		Width:            1100,
 		Height:           700,
 		MinWidth:         800,
 		MinHeight:        600,
-		BackgroundColour: &options.RGBA{R: 13, G: 13, B: 26, A: 255},
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		OnStartup: a.Startup,
-		Bind:      []any{a},
-	}); err != nil {
+		BackgroundColour: application.NewRGBA(13, 13, 26, 255),
+	})
+
+	if err := wailsApp.Run(); err != nil {
 		log.Printf("wails: %v", err)
 	}
 }

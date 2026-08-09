@@ -1,3 +1,5 @@
+import { App as AppBindings } from '../bindings/tokentally/app'
+
 export const SECONDS_PER_DAY = 86_400
 
 export const RANGES = [
@@ -18,7 +20,7 @@ export function withSince(url: string, since: string | null): string {
 }
 
 function App() {
-  return window.go.app.App
+  return AppBindings
 }
 
 type QS = Record<string, string>

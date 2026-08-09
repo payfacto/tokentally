@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { fmt } from '../lib/fmt'
 import { useAppStore } from '../stores/app'
+import { App } from '../bindings/tokentally/app'
 
 const store = useAppStore()
 
@@ -42,7 +43,7 @@ async function check() {
   fetchError.value = null
   info.value = null
   try {
-    info.value = await window.go.app.App.GetOverageInfo()
+    info.value = await App.GetOverageInfo()
   } catch (e) {
     fetchError.value = String(e)
   } finally {
@@ -55,7 +56,7 @@ async function checkLmsgo() {
   lmsgoError.value = null
   lmsgoResult.value = null
   try {
-    lmsgoResult.value = await window.go.app.App.GetLmsgoSavings('', '')
+    lmsgoResult.value = await App.GetLmsgoSavings('', '')
   } catch (e) {
     lmsgoError.value = String(e)
   } finally {

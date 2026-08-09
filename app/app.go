@@ -24,7 +24,7 @@ import (
 	"tokentally/internal/tips"
 	"tokentally/internal/version"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
@@ -64,7 +64,7 @@ var supportedCurrencies = []string{"USD", "CAD", "EUR", "GBP", "AUD", "NZD", "CH
 
 // App is the Wails application struct — all exported methods are bound to the JS frontend.
 type App struct {
-	ctx            context.Context
+	wailsApp       *application.App
 	conn           *db.Pool
 	projectsDir    string
 	pricingMu      sync.RWMutex
@@ -80,9 +80,14 @@ func New(pool *db.Pool, projectsDir string, p *pricing.Pricing) *App {
 	return &App{conn: pool, projectsDir: projectsDir, defaultPricing: p}
 }
 
-// Startup is called by Wails when the app starts.
-func (a *App) Startup(ctx context.Context) {
-	a.ctx = ctx
+// ServiceStartup is called by Wails v3 when the app starts, in registration
+// order. It self-injects the running application via application.Get() rather
+// than exposing a setter — a setter would be an exported method, and
+// therefore bound to the frontend, letting untrusted JS hand this service any
+// *application.App-shaped value it likes (including a zero value whose
+// Event/Window/Dialog managers are nil).
+func (a *App) ServiceStartup(ctx context.Context, opts application.ServiceOptions) error {
+	a.wailsApp = application.Get()
 	seeded, err := db.IsPricingSeeded(a.conn)
 	if err != nil {
 		log.Printf("IsPricingSeeded: %v", err)
@@ -97,6 +102,7 @@ func (a *App) Startup(ctx context.Context) {
 	} else {
 		go a.scanLoop()
 	}
+	return nil
 }
 
 // seedFromDefaults populates pricing_models, pricing_plans, and exchange_rates from defaults.
@@ -159,8 +165,8 @@ func (a *App) scanLoop() {
 	interval := 30 * time.Second
 	for {
 		result, err := scanner.ScanDir(a.conn, a.projectsDir)
-		if err == nil && (result.Messages > 0 || result.Files > 0) {
-			runtime.EventsEmit(a.ctx, "scan", result)
+		if err == nil && (result.Messages > 0 || result.Files > 0) && a.wailsApp != nil {
+			a.wailsApp.Event.Emit("scan", result)
 		}
 		// Purge runs regardless of scan outcome — the two operations are independent.
 		if days, _ := db.GetRetentionDays(a.conn); days > 0 {
@@ -692,8 +698,8 @@ func (a *App) ScanNow() (scanner.ScanResult, error) {
 	a.rateMu.Unlock()
 
 	result, err := scanner.ScanDir(a.conn, a.projectsDir)
-	if err == nil && a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "scan", result)
+	if err == nil && a.wailsApp != nil {
+		a.wailsApp.Event.Emit("scan", result)
 	}
 	return result, err
 }
@@ -718,16 +724,17 @@ func (a *App) PurgeOlderThan(days int) (int64, error) {
 // SaveHTMLExport opens a native Save-As dialog and writes the provided HTML
 // to the chosen path. Returns the saved path, or empty string if the user cancelled.
 func (a *App) SaveHTMLExport(html string, filename string) (string, error) {
+	if a.wailsApp == nil {
+		return "", fmt.Errorf("SaveHTMLExport: application not ready")
+	}
 	if filename == "" {
 		filename = "session.html"
 	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export session as HTML",
-		DefaultFilename: filename,
-		Filters: []runtime.FileFilter{
-			{DisplayName: "HTML files (*.html)", Pattern: "*.html"},
-		},
-	})
+	path, err := a.wailsApp.Dialog.SaveFile().
+		SetMessage("Export session as HTML").
+		SetFilename(filename).
+		AddFilter("HTML files (*.html)", "*.html").
+		PromptForSingleSelection()
 	if err != nil || path == "" {
 		return "", err
 	}
