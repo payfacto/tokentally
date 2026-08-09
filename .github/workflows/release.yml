@@ -64,18 +64,22 @@ jobs:
       # wails3's standalone `generate` subcommands (syso on Windows, appimage
       # on Linux) need the CLI on PATH. Not needed on macOS - bundle.sh only
       # uses plain go build/sed/cp.
+      # Needed on every platform, not just Windows/Linux: bindings generation
+      # below (the App.vue import of ./bindings/tokentally/app) requires it
+      # too, not just syso/appimage generation.
       - name: Install Wails v3 CLI
-        if: matrix.os != 'macos-latest'
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.5
 
-      # frontend/web/app.bundle.js and app.css are gitignored, //go:embed-ed
-      # into the Go binary, and were previously rebuilt transparently by
-      # `wails build`. Must run before any of the platform Build steps below.
+      # frontend/inspector/src/bindings/ (Go<->TS bindings) and
+      # frontend/web/app.bundle.js + app.css are all gitignored, //go:embed-ed
+      # (the latter) into the Go binary, and were previously generated/
+      # rebuilt transparently by `wails build`. Must run before any of the
+      # platform Build steps below.
       - name: Build frontend
-        working-directory: frontend/inspector
         run: |
-          npm install
-          npm run build
+          wails3 generate bindings -d frontend/inspector/src/bindings -ts -i ./...
+          npm install --prefix frontend/inspector
+          npm run build --prefix frontend/inspector
 
       # CFBundleVersion/.syso fixed version/manifest assemblyIdentity all
       # need a numeric X.Y.Z - git describe's "v1.2.3-4-gabcdef-dirty" isn't

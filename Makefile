@@ -31,11 +31,14 @@ else
 	$(MAKE) build-linux
 endif
 
-# frontend/web/app.bundle.js and app.css are gitignored build output (embedded
-# into the Go binary via //go:embed all:frontend) - Wails v2's CLI rebuilt
-# them automatically as part of `wails build`; plain `go build` does not, so
-# every platform target depends on this first.
+# frontend/inspector/src/bindings/ (Go<->TS bindings) and frontend/web/
+# app.bundle.js + app.css (the built Vue app, embedded into the Go binary via
+# //go:embed all:frontend) are both gitignored - Wails v2's CLI generated and
+# rebuilt them automatically as part of `wails build`; plain `go build` does
+# not, so every platform target depends on this first. Requires the wails3
+# CLI (see README prerequisites).
 frontend:
+	wails3 generate bindings -d frontend/inspector/src/bindings -ts -i ./...
 	npm install --prefix frontend/inspector
 	npm run build --prefix frontend/inspector
 
