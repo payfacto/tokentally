@@ -11,6 +11,7 @@ import SettingsView    from '../views/SettingsView.vue'
 import CalculatorView  from '../views/CalculatorView.vue'
 import OverageView     from '../views/OverageView.vue'
 import CompareView     from '../views/CompareView.vue'
+import ClaudeConfigView from '../views/ClaudeConfigView.vue'
 
 export default createRouter({
   history: createWebHashHistory(),
@@ -29,5 +30,6 @@ export default createRouter({
     { path: '/compare',        component: CompareView },
     { path: '/settings',       component: SettingsView },
     { path: '/calculator',     component: CalculatorView },
+    { path: '/config-editor',  component: ClaudeConfigView },
   ],
 })

@@ -8,8 +8,10 @@ import { FONT_SCALE_STEP } from '../lib/fontScale'
 import { useFontScale } from '../composables/useFontScale'
 import FontScaleControls from '../components/FontScaleControls.vue'
 import { App } from '../bindings/tokentally/app'
+import { ALL_CATEGORY, buildCategoryChips, filterGroupsByCategory } from '../lib/notesCategory'
 
 const POLL_INTERVAL_MS = 15000
+const CATEGORY_STORAGE_KEY = 'tt.notesCategory'
 
 const folders = ref<MarkdownFolder[]>([])
 const files = ref<MarkdownFile[]>([])
@@ -33,6 +35,28 @@ const groups = computed(() => {
   }
   return Array.from(byLabel.entries()).map(([label, list]) => ({ label, files: list }))
 })
+
+function readCategory(): string {
+  try {
+    return localStorage.getItem(CATEGORY_STORAGE_KEY) ?? ALL_CATEGORY
+  } catch {
+    return ALL_CATEGORY
+  }
+}
+
+const selectedCategory = ref(readCategory())
+
+function selectCategory(label: string) {
+  selectedCategory.value = label
+  try {
+    localStorage.setItem(CATEGORY_STORAGE_KEY, label)
+  } catch {
+    // localStorage unavailable — keep the in-memory selection, lose persistence
+  }
+}
+
+const categoryChips = computed(() => buildCategoryChips(groups.value))
+const visibleGroups = computed(() => filterGroupsByCategory(groups.value, selectedCategory.value))
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -119,8 +143,20 @@ onUnmounted(() => clearInterval(pollTimer))
       <div class="sidebar-header">
         <span class="muted" style="font-size:11px">{{ files.length }} file{{ files.length === 1 ? '' : 's' }}</span>
       </div>
+      <div v-if="categoryChips.length > 1" class="category-chips">
+        <button
+          v-for="chip in categoryChips"
+          :key="chip.label"
+          class="category-chip"
+          :class="{ active: selectedCategory === chip.label }"
+          @click="selectCategory(chip.label)"
+        >
+          {{ chip.label === ALL_CATEGORY ? 'All' : chip.label }}
+          <span class="chip-count">{{ chip.count }}</span>
+        </button>
+      </div>
       <div class="notes-list">
-        <template v-for="group in groups" :key="group.label">
+        <template v-for="group in visibleGroups" :key="group.label">
           <div class="group-header">{{ group.label }}</div>
           <div
             v-for="f in group.files"
@@ -148,6 +184,10 @@ onUnmounted(() => clearInterval(pollTimer))
         <div v-else-if="!files.length" class="empty">
           <span>○</span>
           No files found.
+        </div>
+        <div v-else-if="!visibleGroups.length" class="empty">
+          <span>○</span>
+          No files in this category.
         </div>
       </div>
     </div>
@@ -182,6 +222,16 @@ onUnmounted(() => clearInterval(pollTimer))
 .notes-page { display: flex; height: calc(100vh - 48px); overflow: hidden; background: var(--bg); }
 .notes-sidebar { width: 280px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.category-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.category-chip {
+  display: flex; align-items: center; gap: 5px;
+  background: transparent; border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 10px; font-size: 11px; color: var(--muted); cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.category-chip:hover { color: var(--text); border-color: var(--text); }
+.category-chip.active { color: var(--text); border-color: var(--accent); background: var(--panel); }
+.chip-count { font-family: var(--mono); font-size: 10px; color: var(--muted); }
 .notes-list { overflow-y: auto; flex: 1; }
 .group-header { padding: 8px 12px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .note-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }

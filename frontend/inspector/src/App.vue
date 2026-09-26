@@ -8,7 +8,7 @@ import { Events } from '@wailsio/runtime'
 
 const store = useAppStore()
 
-const NAV_ROUTES = ['/overview', '/prompts', '/sessions', '/projects', '/skills', '/notes', '/tips', '/findings', '/tools', '/compare', '/calculator', '/settings']
+const NAV_ROUTES = ['/overview', '/prompts', '/sessions', '/projects', '/skills', '/notes', '/tips', '/findings', '/tools', '/compare', '/calculator', '/config-editor', '/settings']
 
 const showFirstRun = ref(false)
 const firstRunPlan = ref('api')

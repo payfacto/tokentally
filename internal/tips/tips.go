@@ -1,14 +1,13 @@
 package tips
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"tokentally/internal/claudeconfig"
 	"tokentally/internal/db"
 )
 
@@ -237,20 +236,25 @@ func countConfiguredMCP() int {
 	return v
 }
 
+// loadConfiguredMCP reads the number of MCP servers configured in
+// ~/.claude/settings.json, via the shared internal/claudeconfig package (also
+// used by GetContextHealth so the two never drift on how that file is parsed).
 func loadConfiguredMCP() int {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return 0
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	loaded, err := claudeconfig.Load(claudeconfig.NewStore(home).SettingsPath())
+	if err != nil || !loaded.Exists {
+		return 0
+	}
+	doc, err := claudeconfig.ParseRawDoc(loaded.Data)
 	if err != nil {
 		return 0
 	}
-	var raw struct {
-		MCPServers map[string]json.RawMessage `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	servers, err := claudeconfig.MCPServersRaw(doc)
+	if err != nil {
 		return 0
 	}
-	return len(raw.MCPServers)
+	return len(servers)
 }
