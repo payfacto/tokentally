@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"tokentally/internal/claudeconfig"
 	"tokentally/internal/db"
 	"tokentally/internal/lmsgo"
 	"tokentally/internal/pricing"
@@ -73,6 +74,25 @@ type App struct {
 	rateMu         sync.Mutex
 	lastScan       time.Time
 	lastRefresh    time.Time
+
+	// testHomeDir overrides os.UserHomeDir() for claudeconfigStore. Only ever
+	// set by tests (see newTestApp / claudeconfig_test.go) - production code
+	// leaves it empty and resolves the real home directory.
+	testHomeDir string
+}
+
+// claudeconfigStore returns a claudeconfig.Store rooted at the current user's
+// home directory (or at testHomeDir, when a test has set it).
+func (a *App) claudeconfigStore() (*claudeconfig.Store, error) {
+	home := a.testHomeDir
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		home = h
+	}
+	return claudeconfig.NewStore(home), nil
 }
 
 // New creates a new App. pool must already be open.
@@ -217,40 +237,28 @@ type contextHealthResult struct {
 }
 
 func (a *App) GetContextHealth() (contextHealthResult, error) {
-	home, err := os.UserHomeDir()
+	store, err := a.claudeconfigStore()
 	if err != nil {
 		return contextHealthResult{}, nil
 	}
 	var result contextHealthResult
 
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	settingsPath := store.SettingsPath()
 	if info, err := os.Stat(settingsPath); err == nil {
 		result.SettingsKB = float64(info.Size()) / 1024.0
-		if data, err := os.ReadFile(settingsPath); err == nil {
-			var raw map[string]json.RawMessage
-			if json.Unmarshal(data, &raw) == nil {
-				if mcpRaw, ok := raw["mcpServers"]; ok {
-					var m map[string]json.RawMessage
-					if json.Unmarshal(mcpRaw, &m) == nil {
-						result.MCPCount = len(m)
-					}
+		if loaded, err := claudeconfig.Load(settingsPath); err == nil && loaded.Exists {
+			if doc, err := claudeconfig.ParseRawDoc(loaded.Data); err == nil {
+				if servers, err := claudeconfig.MCPServersRaw(doc); err == nil {
+					result.MCPCount = len(servers)
 				}
-				if hooksRaw, ok := raw["hooks"]; ok {
-					var hooksMap map[string]json.RawMessage
-					if json.Unmarshal(hooksRaw, &hooksMap) == nil {
-						for _, v := range hooksMap {
-							var arr []json.RawMessage
-							if json.Unmarshal(v, &arr) == nil {
-								result.HookCount += len(arr)
-							}
-						}
-					}
+				if hookCount, err := claudeconfig.CountHooks(doc); err == nil {
+					result.HookCount = hookCount
 				}
 			}
 		}
 	}
 
-	claudePath := filepath.Join(home, ".claude", "CLAUDE.md")
+	claudePath := store.ClaudeMDPath()
 	if info, err := os.Stat(claudePath); err == nil {
 		result.ClaudeKB = float64(info.Size()) / 1024.0
 		if f, err := os.Open(claudePath); err == nil {
