@@ -1,8 +1,13 @@
-# Bitbucket Pipelines — mirror Bitbucket -> GitHub, with .context/ stripped.
+# Bitbucket Pipelines — doc-lint, then mirror Bitbucket -> GitHub with
+# .context/ stripped.
 #
 # Bitbucket is the source of truth and keeps .context/. GitHub is a
 # CI/release mirror with .context/ stripped from history — GitHub Actions
 # builds the binaries there (.github/workflows/release.yml).
+#
+# doc-lint (scripts/doc-lint.mjs) checks .context/ content, so it must run
+# here, before the strip — it can never pass against the GitHub mirror,
+# where .context/ is deliberately absent.
 #
 # One-time setup:
 #   1. Repository settings -> Pipelines -> SSH keys -> Generate keys.
@@ -28,6 +33,12 @@ clone:
 
 definitions:
   steps:
+    - step: &doc-lint
+        name: doc-lint
+        image: node:20-alpine
+        script:
+          - node scripts/doc-lint.mjs
+
     - step: &mirror-to-github
         name: Strip .context and mirror to GitHub
         script:
@@ -66,9 +77,14 @@ definitions:
           - if [ -n "$BITBUCKET_TAG" ]; then git push github "refs/tags/$BITBUCKET_TAG:refs/tags/$BITBUCKET_TAG" --force; fi
 
 pipelines:
+  pull-requests:
+    '**':
+      - step: *doc-lint
   branches:
     main:
+      - step: *doc-lint
       - step: *mirror-to-github
   tags:
     'v*':
+      - step: *doc-lint
       - step: *mirror-to-github
